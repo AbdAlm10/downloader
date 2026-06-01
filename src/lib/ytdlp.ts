@@ -30,10 +30,29 @@ function isYouTubeUrl(url: string): boolean {
   return /youtube\.com|youtu\.be/i.test(url);
 }
 
-/** YouTube يتطلب JS runtime (Node) وإلا تُرجع الصور المصغّرة فقط بدون فيديو */
+function resolveRuntimeBin(name: "deno" | "node"): string | null {
+  const envKey = name === "deno" ? "YTDLP_DENO_PATH" : "YTDLP_NODE_PATH";
+  const candidates = [
+    process.env[envKey]?.trim(),
+    name === "node" ? process.execPath : undefined,
+    path.join("/usr/local/bin", name),
+  ].filter((p): p is string => Boolean(p?.trim()));
+
+  for (const bin of candidates) {
+    if (fs.existsSync(bin)) return bin;
+  }
+  return null;
+}
+
+/** YouTube يتطلب JS runtime (Deno أو Node) وإلا تُرجع الصور المصغّرة فقط */
 function getJsRuntimeArgs(): string[] {
-  const nodeBin = process.env.YTDLP_NODE_PATH?.trim() || process.execPath;
-  return ["--js-runtimes", `node:${nodeBin}`];
+  const runtimes: string[] = [];
+  const deno = resolveRuntimeBin("deno");
+  const node = resolveRuntimeBin("node");
+  if (deno) runtimes.push(`deno:${deno}`);
+  if (node) runtimes.push(`node:${node}`);
+  if (runtimes.length === 0) return [];
+  return ["--js-runtimes", runtimes.join(",")];
 }
 
 function getInfoArgsForUrl(url: string): string[] {
@@ -45,12 +64,11 @@ function getInfoArgsForUrl(url: string): string[] {
     "--retries",
     "2",
     "--socket-timeout",
-    /facebook|instagram|tiktok/i.test(url) ? "40" : "25",
+    /facebook|instagram|tiktok/i.test(url) ? "40" : isYouTubeUrl(url) ? "60" : "25",
   ];
 
   if (isYouTubeUrl(url)) {
     args.push(...getJsRuntimeArgs());
-    args.push("--extractor-args", "youtube:player_client=android,web");
   }
 
   return args;
@@ -145,7 +163,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 
 async function fetchRawInfo(ytdlp: YTDlpWrap, url: string): Promise<RawInfo> {
   const run = async () => {
-    const stdout = await ytdlp.execPromise([url, ...getInfoArgsForUrl(url)]);
+    const stdout = await ytdlp.execPromise([...getInfoArgsForUrl(url), url]);
     return JSON.parse(stdout) as RawInfo;
   };
 
@@ -174,7 +192,7 @@ function buildFormatSpec(formatId: string, merge: boolean): string {
 export async function createDownloadStream(url: string, formatId: string, merge = false) {
   const ytdlp = await getYtdlp();
   const formatSpec = buildFormatSpec(formatId, merge);
-  const args = [url, "-f", formatSpec, ...getDownloadArgsForUrl(url), "-o", "-"];
+  const args = [...getDownloadArgsForUrl(url), "-f", formatSpec, url, "-o", "-"];
 
   if (merge) {
     args.splice(args.length - 2, 0, "--merge-output-format", "mp4");

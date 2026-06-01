@@ -20,5 +20,7 @@ services:
         value: /usr/local/bin/yt-dlp
       - key: YTDLP_NODE_PATH
         value: /usr/local/bin/node
+      - key: YTDLP_DENO_PATH
+        value: /usr/local/bin/deno
       - key: DEPLOY_VERBOSE_ERRORS
         value: "true"

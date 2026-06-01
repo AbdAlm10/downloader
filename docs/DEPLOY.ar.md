@@ -129,7 +129,8 @@ NEXT_PUBLIC_FALLBACK_URL=http://localhost:3001
 
 ## ملاحظات
 
-- **ffmpeg** + **python3** + **yt-dlp** مثبتان في Docker (مطلوب).
+- **ffmpeg** + **python3** + **yt-dlp** + **Deno** مثبتان في Docker (مطلوب ليوتيوب).
+- بدون **JS runtime** (Deno/Node) يوتيوب يعرض **صورة الغلاف فقط** — محلياً يعمل لأن Node موجود على جهازك.
 - بعد أي تعديل: Render → **Manual Deploy** → **Clear build cache & deploy**.
 - في لوحة Render: **Runtime = Docker** (ليس Node).
 - تحقق: `/api/health` يجب أن يعيد `"ready":true` و `"version":"..."`.
@@ -146,3 +147,9 @@ NEXT_PUBLIC_FALLBACK_URL=http://localhost:3001
 
 1. افتح **Logs** في Render أثناء البناء — يجب أن ترى `yt-dlp --version` ناجحاً.
 2. أضف `DEPLOY_VERBOSE_ERRORS=true` وافتح `/api/health` لرؤية `initError`.
+
+### يوتيوب يعمل محلياً لكن على Render يظهر «صورة» فقط
+
+1. ادفع آخر commit (Dockerfile يثبت Deno ويفحص يوتيوب أثناء البناء).
+2. Render → **Manual Deploy** → **Clear build cache & deploy** (مهم — بدونها يبقى صورة Docker قديمة).
+3. بعد النشر جرّب: `POST /api/info` برابط يوتيوب — يجب أن يكون `videoFormats` غير فارغ.
