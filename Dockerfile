@@ -19,10 +19,8 @@ RUN apt-get update \
   && /usr/local/bin/deno --version \
   && /usr/local/bin/yt-dlp --version \
   && test -x /usr/local/bin/node \
-  && yt-dlp -J --no-playlist --socket-timeout 60 \
-    --js-runtimes "deno:/usr/local/bin/deno,node:/usr/local/bin/node" \
-    "https://www.youtube.com/watch?v=jNQXAC9IVRw" \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); v=[f for f in d.get('formats',[]) if (f.get('vcodec') or 'none')!='none']; assert len(v)>0, 'YouTube: no video formats (JS runtime)'" \
+  && node -e "process.exit(0)" \
+  && deno eval "Deno.exit(0)" \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

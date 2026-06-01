@@ -156,4 +156,8 @@ NEXT_PUBLIC_FALLBACK_URL=http://localhost:3001
 
 ### فشل البناء: `either unzip or 7z is required to install Deno`
 
-الـ Dockerfile القديم نسي حزمة `unzip`. ادفع آخر commit ثم أعد النشر. إذا فشل البناء لاحقاً عند خطوة يوتيوب (شبكة Render)، انسخ سطر الخطأ من Logs.
+الـ Dockerfile القديم نسي حزمة `unzip`. ادفع آخر commit ثم أعد النشر.
+
+### فشل البناء عند خطوة `yt-dlp -J` / YouTube smoke test
+
+Render أثناء **البناء** غالباً لا يستطيع استخراج فيديو يوتيوب (شبكة مراكز البيانات). تم إزالة هذا الفحص من Dockerfile — يُتحقق فقط من تثبيت Deno و Node و yt-dlp. بعد النشر اختبر `/api/info` برابط يوتيوب.
