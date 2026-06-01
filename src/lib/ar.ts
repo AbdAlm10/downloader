@@ -54,6 +54,7 @@ export const ar = {
   invalidUrl: "رابط غير صالح",
   noFormats: "لم يُعثر على صيغ قابلة للتحميل.",
   fetchFailed: "تعذّر جلب معلومات الوسائط",
+  fetchTimeout: "استغرق التحليل وقتاً طويلاً — حاول مجدداً (قد يكون السيرفر بارداً)",
   missingImageUrl: "رابط الصورة مفقود",
   missingMediaUrl: "رابط الوسائط مفقود",
   imageFetchFailed: "فشل تنزيل الصورة",

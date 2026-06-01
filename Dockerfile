@@ -1,13 +1,13 @@
 FROM node:20-bookworm-slim
 
-# حزمة apt قديمة جداً (2023) — YouTube يفشل. نثبت أحدث yt-dlp عبر pip.
+# yt-dlp حديث عبر pip + curl-cffi لـ YouTube (أخف من [default] كامل)
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ffmpeg \
     ca-certificates \
     python3 \
     python3-pip \
-  && pip3 install --break-system-packages --no-cache-dir -U "yt-dlp[default]" \
+  && pip3 install --break-system-packages --no-cache-dir -U yt-dlp curl-cffi \
   && rm -rf /var/lib/apt/lists/* \
   && /usr/local/bin/yt-dlp --version
 
@@ -17,6 +17,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 
 COPY . .
+ENV NODE_OPTIONS="--max-old-space-size=460"
 RUN npm run build
 
 ENV YTDLP_PATH=/usr/local/bin/yt-dlp

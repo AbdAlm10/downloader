@@ -6,8 +6,10 @@ services:
     plan: free
     dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
-    healthCheckInitialDelaySeconds: 90
+    healthCheckInitialDelaySeconds: 120
     envVars:
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=460
       - key: NODE_ENV
         value: production
       - key: DEPLOYMENT_PROVIDER

@@ -7,14 +7,23 @@ import { assertPublicHttpUrl } from "./security/url";
 
 const BIN_DIR = path.join(process.cwd(), ".bin");
 
-function getBinPath(): string {
+export function getBinPath(): string {
   const fromEnv = process.env.YTDLP_PATH?.trim();
   if (fromEnv && fs.existsSync(fromEnv)) return fromEnv;
 
   const local = path.join(BIN_DIR, process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp");
-  if (fs.existsSync(local)) return local;
-
   return local;
+}
+
+/** فحص خفيف — لا يشغّل yt-dlp (مهم لـ Render health check) */
+export function checkBinaryOnDisk(): {
+  ready: boolean;
+  binaryPath: string;
+  binaryExists: boolean;
+} {
+  const binaryPath = getBinPath();
+  const binaryExists = fs.existsSync(binaryPath);
+  return { ready: binaryExists, binaryPath, binaryExists };
 }
 
 const INFO_ARGS = [
@@ -23,16 +32,15 @@ const INFO_ARGS = [
   "--no-warnings",
   "--ignore-no-formats-error",
   "--retries",
-  "3",
+  "2",
   "--socket-timeout",
-  "60",
+  "25",
   "--extractor-args",
   "youtube:player_client=android,web",
 ];
 
 let ytdlpInstance: YTDlpWrap | null = null;
 let initPromise: Promise<YTDlpWrap> | null = null;
-let lastInitError: string | undefined;
 
 async function ensureBinary(): Promise<string> {
   const binPath = getBinPath();
@@ -57,19 +65,14 @@ export async function getYtdlp(): Promise<YTDlpWrap> {
 
   if (!initPromise) {
     initPromise = (async () => {
-      try {
-        const binaryPath = await ensureBinary();
-        const instance = new YTDlpWrap(binaryPath);
-        await instance.getVersion();
-        ytdlpInstance = instance;
-        lastInitError = undefined;
-        return instance;
-      } catch (err) {
-        lastInitError = err instanceof Error ? err.message : String(err);
-        initPromise = null;
-        throw err;
-      }
-    })();
+      const binaryPath = await ensureBinary();
+      const instance = new YTDlpWrap(binaryPath);
+      ytdlpInstance = instance;
+      return instance;
+    })().catch((err) => {
+      initPromise = null;
+      throw err;
+    });
   }
 
   return initPromise;
@@ -82,20 +85,39 @@ function extractYtdlpError(err: unknown): string {
     if (msg.includes("Sign in") || msg.includes("login")) return ar.loginRequired;
     if (msg.includes("Unsupported URL")) return ar.unsupportedUrl;
     if (msg.includes("Unable to download") || msg.includes("HTTP Error")) return ar.unreachable;
+    if (msg.includes("timed out") || msg.includes("Timeout")) return ar.fetchTimeout;
     if (msg.length > 300) return msg.slice(0, 300) + "…";
     return msg;
   }
   return ar.fetchFailed;
 }
 
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise
+      .then((v) => {
+        clearTimeout(timer);
+        resolve(v);
+      })
+      .catch((e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+  });
+}
+
 async function fetchRawInfo(ytdlp: YTDlpWrap, url: string): Promise<RawInfo> {
-  try {
-    const stdout = await ytdlp.execPromise([url, ...INFO_ARGS]);
-    return JSON.parse(stdout) as RawInfo;
-  } catch {
-    const raw = (await ytdlp.getVideoInfo([url, ...INFO_ARGS])) as RawInfo;
-    return raw;
-  }
+  const run = async () => {
+    try {
+      const stdout = await ytdlp.execPromise([url, ...INFO_ARGS]);
+      return JSON.parse(stdout) as RawInfo;
+    } catch {
+      return (await ytdlp.getVideoInfo([url, ...INFO_ARGS])) as RawInfo;
+    }
+  };
+
+  return withTimeout(run(), 50_000, ar.fetchTimeout);
 }
 
 export async function fetchMediaInfo(url: string) {
@@ -151,37 +173,4 @@ export async function fetchDirectUrl(sourceUrl: string): Promise<{
   if (!body) throw new Error(ar.emptyImageResponse);
 
   return { body, contentType };
-}
-
-export async function checkYtdlpReady(): Promise<{
-  ready: boolean;
-  version?: string;
-  binaryPath?: string;
-  binaryExists?: boolean;
-  initError?: string;
-}> {
-  const binaryPath = getBinPath();
-  const binaryExists = fs.existsSync(binaryPath);
-
-  try {
-    const ytdlp = await getYtdlp();
-    const version = await ytdlp.getVersion();
-    return {
-      ready: true,
-      version: version?.trim(),
-      binaryPath,
-      binaryExists,
-    };
-  } catch {
-    const verbose =
-      process.env.DEPLOY_VERBOSE_ERRORS === "true" ||
-      process.env.NODE_ENV === "development";
-
-    return {
-      ready: false,
-      binaryPath,
-      binaryExists,
-      initError: verbose ? lastInitError : undefined,
-    };
-  }
 }

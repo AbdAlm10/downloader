@@ -42,15 +42,31 @@ export function DownloaderApp() {
   useFailover();
 
   useEffect(() => {
-    const check = () =>
-      fetch("/api/health", { cache: "no-store" })
-        .then((r) => r.json())
-        .then((d: { ready?: boolean }) => setEngineReady(d.ready === true))
-        .catch(() => setEngineReady(false));
+    let cancelled = false;
+
+    const check = async () => {
+      try {
+        const res = await fetch("/api/health", {
+          cache: "no-store",
+          signal: AbortSignal.timeout(8_000),
+        });
+        if (!res.ok) {
+          if (!cancelled) setEngineReady(false);
+          return;
+        }
+        const d: { ready?: boolean } = await res.json();
+        if (!cancelled) setEngineReady(d.ready === true);
+      } catch {
+        if (!cancelled) setEngineReady(false);
+      }
+    };
 
     check();
-    const id = window.setInterval(check, 15_000);
-    return () => window.clearInterval(id);
+    const id = window.setInterval(check, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
   }, []);
 
   const currentFormats = info ? formatsForType(info, mediaType) : [];
