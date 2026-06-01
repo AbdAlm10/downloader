@@ -227,22 +227,22 @@ export function parseMediaInfo(raw: RawInfo, url: string): {
 } {
   const formats = (raw.formats ?? []).filter(isStreamableFormat);
 
-  const videoRaw = formats.filter(
-    (f) => (f.vcodec ?? "none") !== "none" && !isImageExt(f.ext) && formatHeight(f) > 0
-  );
+  const videoRaw = formats.filter((f) => {
+    if ((f.vcodec ?? "none") === "none" || isImageExt(f.ext)) return false;
+    return formatHeight(f) > 0 || !!(f.format_note && /\d+p/i.test(f.format_note));
+  });
   const audioOnlyRaw = formats.filter(
     (f) =>
       (f.vcodec ?? "none") === "none" &&
       (f.acodec ?? "none") !== "none" &&
       !isImageExt(f.ext)
   );
-  const combinedRaw = formats.filter(
-    (f) =>
-      (f.vcodec ?? "none") !== "none" &&
-      (f.acodec ?? "none") !== "none" &&
-      !isImageExt(f.ext) &&
-      formatHeight(f) > 0
-  );
+  const combinedRaw = formats.filter((f) => {
+    if ((f.vcodec ?? "none") === "none" || (f.acodec ?? "none") === "none" || isImageExt(f.ext)) {
+      return false;
+    }
+    return formatHeight(f) > 0 || !!(f.format_note && /\d+p/i.test(f.format_note));
+  });
 
   const videoCandidates = [...combinedRaw, ...videoRaw]
     .sort((a, b) => formatHeight(b) - formatHeight(a))

@@ -73,6 +73,8 @@ export const ar = {
   coverImage: "الغلاف",
   imageN: (n: number) => `صورة ${n}`,
   original: "أصلي",
+  bestQuality: "أفضل جودة",
+  orLower: "أو أقل",
   videoLabel: "فيديو",
   audioLabel: "صوت",
   imageLabel: "صورة",

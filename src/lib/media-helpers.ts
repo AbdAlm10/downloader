@@ -12,9 +12,10 @@ export function formatsForType(info: MediaInfo, type: MediaType): FormatOption[]
 }
 
 export function defaultMediaType(info: MediaInfo): MediaType {
+  const isYoutube = /youtube|يوتيوب/i.test(info.platform);
   if (info.videoFormats.length > 0) return "video";
   if (info.audioFormats.length > 0) return "audio";
-  if (info.imageFormats.length > 0) return "image";
+  if (!isYoutube && info.imageFormats.length > 0) return "image";
   return "video";
 }
 
@@ -42,7 +43,10 @@ export function buildDownloadParams(
     params.set("directUrl", format.directUrl);
   } else {
     params.set("url", info.webpageUrl);
-    if (mediaType === "video" && !format.hasAudio) {
+    const needsMerge =
+      mediaType === "video" &&
+      (!format.hasAudio || formatId.includes("+") || formatId.includes("/"));
+    if (needsMerge) {
       params.set("merge", "true");
     }
   }

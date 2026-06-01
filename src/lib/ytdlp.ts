@@ -7,6 +7,7 @@ import { ar } from "./ar";
 import { parseMediaInfo, type RawInfo } from "./formats";
 import { resolveMediaUrl } from "./resolve-media-url";
 import { assertPublicHttpUrl } from "./security/url";
+import { applyYouTubeFormatPresets } from "./youtube-formats";
 
 const execFileAsync = promisify(execFile);
 const BIN_DIR = path.join(process.cwd(), ".bin");
@@ -113,7 +114,7 @@ function getYouTubePrimaryArgs(): string[] {
   ];
 }
 
-/** Second attempt only when the first hits JS / challenge errors. */
+/** Alternate player clients when the primary returns metadata only. */
 function getYouTubeFallbackArgs(): string[] {
   return [
     ...getCookieArgs(),
@@ -273,6 +274,8 @@ function isYouTubeRetryableError(err: unknown): boolean {
 
 async function fetchRawInfoYouTube(url: string, base: string[]): Promise<RawInfo> {
   const timeout = YOUTUBE_INFO_TIMEOUT_MS;
+  let lastRaw: RawInfo | null = null;
+  let lastError: unknown = null;
 
   const tryOnce = async (extra: string[]) => {
     const { stdout } = await runYtdlp([...base, ...extra, url], timeout);
@@ -285,15 +288,24 @@ async function fetchRawInfoYouTube(url: string, base: string[]): Promise<RawInfo
     const raw = await tryOnce(getYouTubePrimaryArgs());
     if (rawHasStreamFormats(raw)) return raw;
     if (raw.title) return raw;
+    lastRaw = raw;
   } catch (err) {
+    lastError = err;
     if (!isYouTubeRetryableError(err)) throw err;
   }
 
-  const raw = await tryOnce(getYouTubeFallbackArgs());
-  if (!rawHasStreamFormats(raw) && !raw.title) {
-    throw new Error(ar.youtubeEngineMissing);
+  try {
+    const raw = await tryOnce(getYouTubeFallbackArgs());
+    if (rawHasStreamFormats(raw)) return raw;
+    if (raw.title) return raw;
+    lastRaw = raw;
+  } catch (err) {
+    lastError = err;
   }
-  return raw;
+
+  if (lastRaw?.title) return lastRaw;
+  if (lastError) throw lastError;
+  throw new Error(ar.youtubeEngineMissing);
 }
 
 async function fetchRawInfo(url: string): Promise<RawInfo> {
@@ -370,30 +382,35 @@ export async function fetchMediaInfo(url: string) {
 
   try {
     const raw = await withTimeout(fetchRawInfo(resolvedUrl), FETCH_MEDIA_TIMEOUT_MS, ar.fetchTimeout);
-    return parseMediaInfo(raw, resolvedUrl);
+    const info = parseMediaInfo(raw, resolvedUrl);
+    return isYouTubeUrl(resolvedUrl) ? applyYouTubeFormatPresets(info) : info;
   } catch (err) {
     throw new Error(extractYtdlpError(err));
   }
 }
 
 function buildFormatSpec(formatId: string, merge: boolean): string {
-  if (!merge || formatId.includes("+") || formatId.includes("/")) return formatId;
+  if (formatId.includes("+") || formatId.includes("/") || formatId.includes("[")) {
+    return formatId;
+  }
+  if (!merge) return formatId;
   if (/mp3|m4a|audio|dash_aud|http_|^inv-a-/i.test(formatId)) return formatId;
   if (/^inv-/.test(formatId)) return formatId;
   if (/^\d+$/.test(formatId)) return `${formatId}+bestaudio/best`;
   return formatId;
 }
 
-export async function createDownloadStream(url: string, formatId: string, merge = false) {
-  if (/^inv-/.test(formatId)) {
-    throw new Error(ar.videoDownloadFailed);
-  }
+function needsMerge(formatId: string, mergeFlag: boolean): boolean {
+  return mergeFlag || formatId.includes("+");
+}
 
+export async function createDownloadStream(url: string, formatId: string, merge = false) {
   const ytdlp = await getYtdlp();
   const formatSpec = buildFormatSpec(formatId, merge);
+  const doMerge = needsMerge(formatId, merge);
   const args = [...getDownloadArgsForUrl(url), "-f", formatSpec, url, "-o", "-"];
 
-  if (merge) {
+  if (doMerge) {
     args.splice(args.length - 2, 0, "--merge-output-format", "mp4");
   }
 
