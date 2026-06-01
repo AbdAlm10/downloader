@@ -26,6 +26,16 @@ export function checkBinaryOnDisk(): {
   return { ready: binaryExists, binaryPath, binaryExists };
 }
 
+function isYouTubeUrl(url: string): boolean {
+  return /youtube\.com|youtu\.be/i.test(url);
+}
+
+/** YouTube يتطلب JS runtime (Node) وإلا تُرجع الصور المصغّرة فقط بدون فيديو */
+function getJsRuntimeArgs(): string[] {
+  const nodeBin = process.env.YTDLP_NODE_PATH?.trim() || process.execPath;
+  return ["--js-runtimes", `node:${nodeBin}`];
+}
+
 function getInfoArgsForUrl(url: string): string[] {
   const args = [
     "-J",
@@ -38,10 +48,17 @@ function getInfoArgsForUrl(url: string): string[] {
     /facebook|instagram|tiktok/i.test(url) ? "40" : "25",
   ];
 
-  if (/youtube\.com|youtu\.be/i.test(url)) {
+  if (isYouTubeUrl(url)) {
+    args.push(...getJsRuntimeArgs());
     args.push("--extractor-args", "youtube:player_client=android,web");
   }
 
+  return args;
+}
+
+function getDownloadArgsForUrl(url: string): string[] {
+  const args = ["--no-playlist", "--no-warnings"];
+  if (isYouTubeUrl(url)) args.push(...getJsRuntimeArgs());
   return args;
 }
 
@@ -157,7 +174,7 @@ function buildFormatSpec(formatId: string, merge: boolean): string {
 export async function createDownloadStream(url: string, formatId: string, merge = false) {
   const ytdlp = await getYtdlp();
   const formatSpec = buildFormatSpec(formatId, merge);
-  const args = [url, "-f", formatSpec, "--no-playlist", "--no-warnings", "-o", "-"];
+  const args = [url, "-f", formatSpec, ...getDownloadArgsForUrl(url), "-o", "-"];
 
   if (merge) {
     args.splice(args.length - 2, 0, "--merge-output-format", "mp4");

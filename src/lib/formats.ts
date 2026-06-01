@@ -62,6 +62,17 @@ function extFromUrl(url: string): string {
   }
 }
 
+function formatHeight(f: RawFormat): number {
+  if ((f.height ?? 0) > 0) return f.height!;
+  const res = f.resolution ?? "";
+  const fromRes = res.match(/(\d{3,4})p/i) ?? res.match(/x(\d{3,4})/i);
+  if (fromRes) return parseInt(fromRes[1]!, 10);
+  const note = f.format_note ?? "";
+  const fromNote = note.match(/(\d{3,4})p/i);
+  if (fromNote) return parseInt(fromNote[1]!, 10);
+  return 0;
+}
+
 function isStreamableFormat(f: RawFormat): boolean {
   if (!f.format_id || f.format_id === "sb" || /^sb\d*/i.test(f.format_id)) return false;
   const vcodec = f.vcodec ?? "none";
@@ -79,6 +90,8 @@ function qualityLabel(f: RawFormat, type: "video" | "audio" | "image"): string {
     return f.format_note || ar.imageLabel;
   }
   if (type === "video") {
+    const h = formatHeight(f);
+    if (h > 0) return `${h}p`;
     if (f.height) return `${f.height}p`;
     if (f.resolution && f.resolution !== "audio only") return f.resolution;
     return f.format_note || ar.videoLabel;
@@ -215,10 +228,7 @@ export function parseMediaInfo(raw: RawInfo, url: string): {
   const formats = (raw.formats ?? []).filter(isStreamableFormat);
 
   const videoRaw = formats.filter(
-    (f) =>
-      (f.vcodec ?? "none") !== "none" &&
-      !isImageExt(f.ext) &&
-      ((f.height ?? 0) > 0 || (f.width ?? 0) > 0 || !!f.resolution)
+    (f) => (f.vcodec ?? "none") !== "none" && !isImageExt(f.ext) && formatHeight(f) > 0
   );
   const audioOnlyRaw = formats.filter(
     (f) =>
@@ -231,11 +241,11 @@ export function parseMediaInfo(raw: RawInfo, url: string): {
       (f.vcodec ?? "none") !== "none" &&
       (f.acodec ?? "none") !== "none" &&
       !isImageExt(f.ext) &&
-      ((f.height ?? 0) > 0 || (f.width ?? 0) > 0 || !!f.resolution)
+      formatHeight(f) > 0
   );
 
   const videoCandidates = [...combinedRaw, ...videoRaw]
-    .sort((a, b) => (b.height ?? 0) - (a.height ?? 0))
+    .sort((a, b) => formatHeight(b) - formatHeight(a))
     .filter(
       (f, i, arr) =>
         arr.findIndex((x) => formatKey(x, "video") === formatKey(f, "video")) === i
