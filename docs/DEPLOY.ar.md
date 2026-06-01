@@ -150,6 +150,10 @@ NEXT_PUBLIC_FALLBACK_URL=http://localhost:3001
 
 ### يوتيوب يعمل محلياً لكن على Render يظهر «صورة» فقط
 
-1. ادفع آخر commit (Dockerfile يثبت Deno ويفحص يوتيوب أثناء البناء).
+1. ادفع آخر commit (Dockerfile يثبت Deno + `unzip` ويفحص يوتيوب أثناء البناء).
 2. Render → **Manual Deploy** → **Clear build cache & deploy** (مهم — بدونها يبقى صورة Docker قديمة).
 3. بعد النشر جرّب: `POST /api/info` برابط يوتيوب — يجب أن يكون `videoFormats` غير فارغ.
+
+### فشل البناء: `either unzip or 7z is required to install Deno`
+
+الـ Dockerfile القديم نسي حزمة `unzip`. ادفع آخر commit ثم أعد النشر. إذا فشل البناء لاحقاً عند خطوة يوتيوب (شبكة Render)، انسخ سطر الخطأ من Logs.

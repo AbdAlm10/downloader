@@ -1,30 +1,29 @@
 FROM node:20-bookworm-slim
 
-# yt-dlp حديث + Deno/Node لـ YouTube (بدون JS runtime تظهر الصور المصغّرة فقط)
+ENV DENO_INSTALL=/usr/local \
+    YTDLP_PATH=/usr/local/bin/yt-dlp \
+    YTDLP_NODE_PATH=/usr/local/bin/node \
+    YTDLP_DENO_PATH=/usr/local/bin/deno
+
+# unzip مطلوب لسكربت تثبيت Deno — بدون JS runtime يوتيوب يعرض الصورة فقط
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ffmpeg \
     ca-certificates \
     curl \
+    unzip \
     python3 \
     python3-pip \
   && pip3 install --break-system-packages --no-cache-dir -U yt-dlp curl-cffi \
-  && rm -rf /var/lib/apt/lists/* \
-  && /usr/local/bin/yt-dlp --version
-
-ENV DENO_INSTALL=/usr/local
-RUN curl -fsSL https://deno.land/install.sh | sh \
-  && /usr/local/bin/deno --version
-
-ENV YTDLP_PATH=/usr/local/bin/yt-dlp \
-    YTDLP_NODE_PATH=/usr/local/bin/node \
-    YTDLP_DENO_PATH=/usr/local/bin/deno
-
-# فشل البناء إن لم يُستخرج فيديو من يوتيوب (يكشف غياب JS runtime مبكراً)
-RUN yt-dlp -J --no-playlist \
+  && curl -fsSL https://deno.land/install.sh | sh \
+  && /usr/local/bin/deno --version \
+  && /usr/local/bin/yt-dlp --version \
+  && test -x /usr/local/bin/node \
+  && yt-dlp -J --no-playlist --socket-timeout 60 \
     --js-runtimes "deno:/usr/local/bin/deno,node:/usr/local/bin/node" \
     "https://www.youtube.com/watch?v=jNQXAC9IVRw" \
-  | python3 -c "import sys,json; d=json.load(sys.stdin); v=[f for f in d.get('formats',[]) if (f.get('vcodec') or 'none')!='none']; assert len(v)>0, 'YouTube: no video formats (check Deno/Node)'"
+  | python3 -c "import sys,json; d=json.load(sys.stdin); v=[f for f in d.get('formats',[]) if (f.get('vcodec') or 'none')!='none']; assert len(v)>0, 'YouTube: no video formats (JS runtime)'" \
+  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
