@@ -19,6 +19,7 @@ import { HeroSection } from "./HeroSection";
 import { UrlInput } from "./UrlInput";
 import { ResultsPanel } from "./ResultsPanel";
 import { AppFooter } from "./AppFooter";
+import { useFailover } from "@/hooks/useFailover";
 
 function captureClientError(err: unknown) {
   if (process.env.NODE_ENV === "production") {
@@ -37,6 +38,8 @@ export function DownloaderApp() {
   const [selectedFormatId, setSelectedFormatId] = useState<string | null>(null);
   const [engineReady, setEngineReady] = useState<boolean | null>(null);
   const downloadAbortRef = useRef<AbortController | null>(null);
+
+  useFailover();
 
   useEffect(() => {
     fetch("/api/health")

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Analytics } from "@/components/Analytics";
+import { FailoverBootstrap } from "@/components/FailoverBootstrap";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -20,6 +21,7 @@ export default function RootLayout({
   return (
     <html lang="ar" dir="rtl" className="h-full overflow-hidden">
       <body className="h-full overflow-hidden">
+        <FailoverBootstrap />
         {children}
         <Analytics />
       </body>

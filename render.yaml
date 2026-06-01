@@ -1,0 +1,15 @@
+# نشر احتياطي على Render (مجاني) — انشره بعد Railway وضع رابطه في NEXT_PUBLIC_FALLBACK_URL على Railway
+services:
+  - type: web
+    name: almonzel
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DEPLOYMENT_PROVIDER
+        value: render
+      - key: HOSTNAME
+        value: 0.0.0.0

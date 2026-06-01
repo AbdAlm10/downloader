@@ -28,6 +28,14 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+## Deploy (Railway + Render failover)
+
+**Arabic step-by-step:** [docs/DEPLOY.ar.md](docs/DEPLOY.ar.md)
+
+1. Deploy **Render** first (Docker, free) → copy URL.
+2. Deploy **Railway** (Docker) → set `NEXT_PUBLIC_FALLBACK_URL` to Render URL.
+3. Share the **Railway** link; users auto-redirect to Render if Railway is down.
+
 ## Environment
 
 | Variable | Description |
