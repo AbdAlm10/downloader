@@ -13,6 +13,15 @@ const BIN_DIR = path.join(process.cwd(), ".bin");
 
 const YTDLP_CONFIG_PATH = "/etc/yt-dlp.conf";
 
+const BASE_INFO_FLAGS = [
+  "-J",
+  "--no-playlist",
+  "--no-warnings",
+  "--ignore-no-formats-error",
+  "--retries",
+  "2",
+] as const;
+
 export function getBinPath(): string {
   const fromEnv = process.env.YTDLP_PATH?.trim();
   if (fromEnv && fs.existsSync(fromEnv)) return fromEnv;
@@ -36,7 +45,6 @@ export function getYtdlpRuntimeStatus() {
     deno: resolveRuntimeBin("deno"),
     node: resolveRuntimeBin("node"),
     config: fs.existsSync(YTDLP_CONFIG_PATH) ? YTDLP_CONFIG_PATH : null,
-    ejs: "ejs:github",
   };
 }
 
@@ -58,19 +66,14 @@ function resolveRuntimeBin(name: "deno" | "node"): string | null {
   return null;
 }
 
-/** YouTube: JS runtime + EJS scripts (pip yt-dlp requires both since 2025.11) */
-function getYouTubeArgs(): string[] {
+function getJsRuntimeArgs(): string[] {
   const runtimes: string[] = [];
   const deno = resolveRuntimeBin("deno");
   const node = resolveRuntimeBin("node");
   if (deno) runtimes.push(`deno:${deno}`);
   if (node) runtimes.push(`node:${node}`);
-
-  const args: string[] = ["--remote-components", "ejs:github"];
-  if (runtimes.length > 0) {
-    args.unshift("--js-runtimes", runtimes.join(","));
-  }
-  return args;
+  if (runtimes.length === 0) return [];
+  return ["--js-runtimes", runtimes.join(",")];
 }
 
 function getConfigArgs(): string[] {
@@ -80,29 +83,45 @@ function getConfigArgs(): string[] {
   return [];
 }
 
+/** Pip installs on Windows/dev may need GitHub EJS fetch; official Linux binary bundles EJS */
+function getEjsArgs(): string[] {
+  if (fs.existsSync(YTDLP_CONFIG_PATH)) return [];
+  return ["--remote-components", "ejs:github"];
+}
+
+function getYouTubeStrategies(): string[][] {
+  const js = getJsRuntimeArgs();
+  const ejs = getEjsArgs();
+
+  return [
+    [...js, ...ejs],
+    [...js, "--remote-components", "ejs:github"],
+    [...js, "--remote-components", "ejs:npm"],
+    [
+      ...js,
+      "--extractor-args",
+      "youtube:player_client=android_vr,web",
+    ],
+    ["--extractor-args", "youtube:player_client=android_vr"],
+    ["--extractor-args", "youtube:player_client=android,web"],
+  ];
+}
+
 function getInfoArgsForUrl(url: string): string[] {
-  const args = [
+  return [
     ...getConfigArgs(),
-    "-J",
-    "--no-playlist",
-    "--no-warnings",
-    "--ignore-no-formats-error",
-    "--retries",
-    "2",
+    ...BASE_INFO_FLAGS,
     "--socket-timeout",
     /facebook|instagram|tiktok/i.test(url) ? "40" : isYouTubeUrl(url) ? "90" : "25",
   ];
-
-  if (isYouTubeUrl(url)) {
-    args.push(...getYouTubeArgs());
-  }
-
-  return args;
 }
 
 function getDownloadArgsForUrl(url: string): string[] {
   const args = [...getConfigArgs(), "--no-playlist", "--no-warnings"];
-  if (isYouTubeUrl(url)) args.push(...getYouTubeArgs());
+  if (isYouTubeUrl(url)) {
+    args.push(...getJsRuntimeArgs(), ...getEjsArgs());
+    args.push("--extractor-args", "youtube:player_client=android_vr,web");
+  }
   return args;
 }
 
@@ -112,6 +131,7 @@ function ytdlpEnv(): NodeJS.ProcessEnv {
   return {
     ...process.env,
     PATH: pathEnv.includes(extra) ? pathEnv : `${extra}:${pathEnv}`,
+    HOME: process.env.HOME ?? "/tmp",
   };
 }
 
@@ -154,14 +174,23 @@ export async function getYtdlp(): Promise<YTDlpWrap> {
   return initPromise;
 }
 
-/** execFile مباشرة — PATH صحيح + maxBuffer كبير لـ JSON يوتيوب */
-async function runYtdlp(args: string[]): Promise<string> {
+async function runYtdlp(args: string[]): Promise<{ stdout: string; stderr: string }> {
   const binaryPath = await ensureBinary();
-  const { stdout } = await execFileAsync(binaryPath, args, {
-    maxBuffer: 64 * 1024 * 1024,
-    env: ytdlpEnv(),
-  });
-  return stdout;
+  try {
+    const { stdout, stderr } = await execFileAsync(binaryPath, args, {
+      maxBuffer: 64 * 1024 * 1024,
+      env: ytdlpEnv(),
+    });
+    return { stdout, stderr: stderr ?? "" };
+  } catch (err: unknown) {
+    const execErr = err as { stdout?: string; stderr?: string; message?: string };
+    const error = new Error(execErr.message ?? "yt-dlp failed");
+    Object.assign(error, {
+      stderr: execErr.stderr ?? "",
+      stdout: execErr.stdout ?? "",
+    });
+    throw error;
+  }
 }
 
 function countYouTubeStreamFormats(raw: RawInfo): { video: number; audio: number } {
@@ -177,8 +206,49 @@ function countYouTubeStreamFormats(raw: RawInfo): { video: number; audio: number
   return { video, audio };
 }
 
+function parseRaw(stdout: string): RawInfo | null {
+  const trimmed = stdout.trim();
+  if (!trimmed || trimmed === "null") return null;
+  try {
+    return JSON.parse(trimmed) as RawInfo;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchRawInfo(url: string): Promise<RawInfo> {
+  const base = [...getInfoArgsForUrl(url)];
+
+  if (!isYouTubeUrl(url)) {
+    const { stdout } = await runYtdlp([...base, url]);
+    const raw = parseRaw(stdout);
+    if (!raw) throw new Error(ar.fetchFailed);
+    return raw;
+  }
+
+  let lastError: unknown = null;
+
+  for (const extra of getYouTubeStrategies()) {
+    try {
+      const { stdout } = await runYtdlp([...base, ...extra, url]);
+      const raw = parseRaw(stdout);
+      if (!raw) continue;
+
+      const { video, audio } = countYouTubeStreamFormats(raw);
+      if (video > 0 || audio > 0) return raw;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  if (lastError) throw lastError;
+  throw new Error(ar.youtubeEngineMissing);
+}
+
 function extractYtdlpError(err: unknown): string {
   if (!(err instanceof Error)) return ar.fetchFailed;
+
+  if (err.message === ar.youtubeEngineMissing) return err.message;
 
   let msg = err.message;
   const stderr =
@@ -190,7 +260,7 @@ function extractYtdlpError(err: unknown): string {
   const errorLine = combined.split(/\r?\n/).find((line) => line.includes("ERROR:"));
   if (errorLine) msg = errorLine;
 
-  if (/JavaScript runtime|js-runtimes|ejs:github|remote-components/i.test(combined)) {
+  if (/JavaScript runtime|js-runtimes|challenge solver|ejs:/i.test(combined)) {
     return ar.youtubeEngineMissing;
   }
 
@@ -228,26 +298,12 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
   });
 }
 
-async function fetchRawInfo(url: string): Promise<RawInfo> {
-  const args = [...getInfoArgsForUrl(url), url];
-  const stdout = await runYtdlp(args);
-  return JSON.parse(stdout) as RawInfo;
-}
-
 export async function fetchMediaInfo(url: string) {
   await getYtdlp();
   const resolvedUrl = await resolveMediaUrl(url);
 
   try {
-    let raw = await withTimeout(fetchRawInfo(resolvedUrl), 85_000, ar.fetchTimeout);
-
-    if (isYouTubeUrl(resolvedUrl)) {
-      const { video, audio } = countYouTubeStreamFormats(raw);
-      if (video === 0 && audio === 0) {
-        throw new Error(ar.youtubeEngineMissing);
-      }
-    }
-
+    const raw = await withTimeout(fetchRawInfo(resolvedUrl), 90_000, ar.fetchTimeout);
     return parseMediaInfo(raw, resolvedUrl);
   } catch (err) {
     throw new Error(extractYtdlpError(err));

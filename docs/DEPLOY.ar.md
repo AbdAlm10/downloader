@@ -129,8 +129,8 @@ NEXT_PUBLIC_FALLBACK_URL=http://localhost:3001
 
 ## ملاحظات
 
-- **ffmpeg** + **python3** + **yt-dlp** + **yt-dlp-ejs** + **Deno** في Docker (مطلوب ليوتيوب).
-- يوتيوب يحتاج **JS runtime** (Deno/Node) و **`--remote-components ejs:github`** — بدونهما تظهر **صورة الغلاف فقط**.
+- **ffmpeg** + **yt-dlp_linux** (الملف الرسمي من GitHub — فيه EJS مدمج) + **Deno** في Docker.
+- لا تستخدم `pip install yt-dlp` على السيرفر — غالباً يفشل جلب EJS من GitHub وقت التشغيل.
 - بعد أي تعديل: Render → **Manual Deploy** → **Clear build cache & deploy**.
 - في لوحة Render: **Runtime = Docker** (ليس Node).
 - تحقق: `/api/health` يجب أن يعيد `"ready":true` و `"version":"..."`.

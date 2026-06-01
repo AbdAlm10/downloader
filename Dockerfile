@@ -5,22 +5,20 @@ ENV DENO_INSTALL=/usr/local \
     YTDLP_NODE_PATH=/usr/local/bin/node \
     YTDLP_DENO_PATH=/usr/local/bin/deno
 
-# unzip مطلوب لسكربت تثبيت Deno — بدون JS runtime يوتيوب يعرض الصورة فقط
+# Official binary = bundled EJS (pip + ejs:github fails on many hosts at runtime)
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ffmpeg \
     ca-certificates \
     curl \
     unzip \
-    python3 \
-    python3-pip \
-  && pip3 install --break-system-packages --no-cache-dir -U yt-dlp curl-cffi yt-dlp-ejs \
+  && curl -fsSL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux" \
+    -o /usr/local/bin/yt-dlp \
+  && chmod a+rx /usr/local/bin/yt-dlp \
+  && /usr/local/bin/yt-dlp --version \
   && curl -fsSL https://deno.land/install.sh | sh \
   && /usr/local/bin/deno --version \
-  && /usr/local/bin/yt-dlp --version \
   && test -x /usr/local/bin/node \
-  && node -e "process.exit(0)" \
-  && deno eval "Deno.exit(0)" \
   && rm -rf /var/lib/apt/lists/*
 
 COPY config/yt-dlp.conf /etc/yt-dlp.conf
