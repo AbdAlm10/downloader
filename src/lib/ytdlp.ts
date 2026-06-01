@@ -7,7 +7,7 @@ import { ar } from "./ar";
 import { parseMediaInfo, type RawInfo } from "./formats";
 import { resolveMediaUrl } from "./resolve-media-url";
 import { assertPublicHttpUrl } from "./security/url";
-import { applyYouTubeFormatPresets } from "./youtube-formats";
+import { applyYouTubeFormatPresets, resolveYoutubeFormatSpec } from "./youtube-formats";
 
 const execFileAsync = promisify(execFile);
 const BIN_DIR = path.join(process.cwd(), ".bin");
@@ -390,6 +390,9 @@ export async function fetchMediaInfo(url: string) {
 }
 
 function buildFormatSpec(formatId: string, merge: boolean): string {
+  const ytSpec = resolveYoutubeFormatSpec(formatId);
+  if (ytSpec) return ytSpec;
+
   if (formatId.includes("+") || formatId.includes("/") || formatId.includes("[")) {
     return formatId;
   }
@@ -401,7 +404,8 @@ function buildFormatSpec(formatId: string, merge: boolean): string {
 }
 
 function needsMerge(formatId: string, mergeFlag: boolean): boolean {
-  return mergeFlag || formatId.includes("+");
+  const spec = resolveYoutubeFormatSpec(formatId) ?? formatId;
+  return mergeFlag || spec.includes("+");
 }
 
 export async function createDownloadStream(url: string, formatId: string, merge = false) {

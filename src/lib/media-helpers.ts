@@ -1,4 +1,5 @@
 import type { FormatOption, MediaInfo, MediaType } from "./types";
+import { isYoutubePresetFormatId } from "./youtube-formats";
 
 export function formatsForType(info: MediaInfo, type: MediaType): FormatOption[] {
   switch (type) {
@@ -45,7 +46,10 @@ export function buildDownloadParams(
     params.set("url", info.webpageUrl);
     const needsMerge =
       mediaType === "video" &&
-      (!format.hasAudio || formatId.includes("+") || formatId.includes("/"));
+      (isYoutubePresetFormatId(formatId) ||
+        !format.hasAudio ||
+        formatId.includes("+") ||
+        formatId.includes("/"));
     if (needsMerge) {
       params.set("merge", "true");
     }

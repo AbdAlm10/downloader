@@ -2,6 +2,14 @@ import { z } from "zod";
 import { ar } from "./ar";
 import { ALLOWED_EXTENSIONS } from "./mime";
 import { assertPublicHttpUrl } from "./security/url";
+import { YT_FORMAT_SPECS } from "./youtube-formats";
+
+const NUMERIC_FORMAT_ID = /^[a-zA-Z0-9+._:-]+$/;
+
+function isAllowedFormatId(id: string): boolean {
+  if (id in YT_FORMAT_SPECS) return true;
+  return id.length <= 64 && NUMERIC_FORMAT_ID.test(id);
+}
 
 const urlSchema = z
   .string()
@@ -37,7 +45,7 @@ export const downloadQuerySchema = z
       .string()
       .min(1)
       .max(64)
-      .regex(/^[a-zA-Z0-9+._:-]+$/, ar.formatIdInvalid),
+      .refine(isAllowedFormatId, ar.formatIdInvalid),
     directUrl: urlSchema.optional(),
     title: z.string().max(200).optional(),
     ext: extSchema,
