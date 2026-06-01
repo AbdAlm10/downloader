@@ -63,11 +63,11 @@ function extFromUrl(url: string): string {
 }
 
 function isStreamableFormat(f: RawFormat): boolean {
-  if (!f.format_id || f.format_id === "sb") return false;
+  if (!f.format_id || f.format_id === "sb" || /^sb\d*/i.test(f.format_id)) return false;
   const vcodec = f.vcodec ?? "none";
   const acodec = f.acodec ?? "none";
   if (vcodec === "none" && acodec === "none" && !isImageExt(f.ext)) return false;
-  if (f.protocol && /m3u8|dash|manifest|fmp4/i.test(f.protocol)) return false;
+  // لا نستبعد m3u8/dash — يوتيوب يعتمدها؛ yt-dlp يحمّل عبر معرّف الصيغة وليس الرابط المباشر
   return true;
 }
 
@@ -215,7 +215,10 @@ export function parseMediaInfo(raw: RawInfo, url: string): {
   const formats = (raw.formats ?? []).filter(isStreamableFormat);
 
   const videoRaw = formats.filter(
-    (f) => (f.vcodec ?? "none") !== "none" && (f.height ?? 0) > 0 && !isImageExt(f.ext)
+    (f) =>
+      (f.vcodec ?? "none") !== "none" &&
+      !isImageExt(f.ext) &&
+      ((f.height ?? 0) > 0 || (f.width ?? 0) > 0 || !!f.resolution)
   );
   const audioOnlyRaw = formats.filter(
     (f) =>
@@ -227,8 +230,8 @@ export function parseMediaInfo(raw: RawInfo, url: string): {
     (f) =>
       (f.vcodec ?? "none") !== "none" &&
       (f.acodec ?? "none") !== "none" &&
-      (f.height ?? 0) > 0 &&
-      !isImageExt(f.ext)
+      !isImageExt(f.ext) &&
+      ((f.height ?? 0) > 0 || (f.width ?? 0) > 0 || !!f.resolution)
   );
 
   const videoCandidates = [...combinedRaw, ...videoRaw]

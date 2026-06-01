@@ -13,8 +13,9 @@ export function formatsForType(info: MediaInfo, type: MediaType): FormatOption[]
 
 export function defaultMediaType(info: MediaInfo): MediaType {
   if (info.videoFormats.length > 0) return "video";
+  if (info.audioFormats.length > 0) return "audio";
   if (info.imageFormats.length > 0) return "image";
-  return "audio";
+  return "video";
 }
 
 export function findFormat(info: MediaInfo, formatId: string): FormatOption | undefined {
