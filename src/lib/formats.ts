@@ -1,5 +1,6 @@
 import type { FormatOption } from "./types";
 import { ar } from "./ar";
+import { isDirectImageUrl } from "./image-url";
 import { formatFileSize } from "./utils";
 
 interface RawFormat {
@@ -120,7 +121,7 @@ function toOption(
 }
 
 function thumbnailToFormat(t: RawThumbnail, index: number): FormatOption | null {
-  if (!t.url) return null;
+  if (!t.url || !isDirectImageUrl(t.url)) return null;
   const w = t.width ?? 0;
   const h = t.height ?? 0;
   const ext = extFromUrl(t.url);
@@ -170,11 +171,12 @@ function parseImageFormats(raw: RawInfo, formats: RawFormat[]): FormatOption[] {
   const fromFormats = formats
     .filter(
       (f) =>
-        isImageExt(f.ext) ||
-        ((f.vcodec ?? "none") === "none" &&
-          (f.acodec ?? "none") === "none" &&
-          !!f.url &&
-          (f.width ?? 0) > 0)
+        !!f.url &&
+        isDirectImageUrl(f.url) &&
+        (isImageExt(f.ext) ||
+          ((f.vcodec ?? "none") === "none" &&
+            (f.acodec ?? "none") === "none" &&
+            (f.width ?? 0) > 0))
     )
     .map((f) => toOption({ ...f, format_id: f.format_id ?? `fmt-${f.width}` }, "image", f.url));
 
@@ -250,10 +252,14 @@ export function parseMediaInfo(raw: RawInfo, url: string): {
   const platform =
     raw.extractor_key ?? raw.extractor ?? detectPlatform(url) ?? "Unknown";
 
+  const thumbnail =
+    (raw.thumbnail && isDirectImageUrl(raw.thumbnail) ? raw.thumbnail : undefined) ??
+    imageFormats.find((f) => f.directUrl && isDirectImageUrl(f.directUrl))?.directUrl;
+
   return {
     id: raw.id ?? "media",
     title: raw.title ?? ar.untitled,
-    thumbnail: raw.thumbnail ?? imageFormats[0]?.directUrl,
+    thumbnail,
     duration: raw.duration,
     uploader: raw.uploader ?? raw.channel,
     platform: formatPlatformName(platform),

@@ -1,6 +1,7 @@
 "use client";
 
 import { ar } from "@/lib/ar";
+import { isDirectImageUrl } from "@/lib/image-url";
 import type { MediaInfo } from "@/lib/types";
 
 interface MediaPreviewProps {
@@ -10,7 +11,7 @@ interface MediaPreviewProps {
 export function MediaPreview({ info }: MediaPreviewProps) {
   return (
     <div className="flex gap-5">
-      {info.thumbnail ? (
+      {info.thumbnail && isDirectImageUrl(info.thumbnail) ? (
         <div className="h-[88px] w-[88px] shrink-0 overflow-hidden rounded-[var(--radius-lg)] bg-[var(--bg-secondary)] ring-1 ring-[var(--border)] sm:h-[100px] sm:w-[100px]">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={info.thumbnail} alt="" className="h-full w-full object-cover" />

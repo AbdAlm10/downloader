@@ -34,6 +34,7 @@ export const ar = {
   networkError: "خطأ في الشبكة. حاول مرة أخرى.",
   downloadFailed: "فشل التحميل",
   imageDownloadFailed: "فشل تحميل الصورة. جرّب دقة أخرى.",
+  notDirectImage: "هذا ليس رابط صورة مباشرة — اختر فيديو أو صوت.",
   videoDownloadFailed: "فشل التحميل. جرّب جودة أخرى.",
 
   footer: "للاستخدام الشخصي · احترم حقوق النشر",

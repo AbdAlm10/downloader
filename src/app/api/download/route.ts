@@ -4,6 +4,7 @@ import { guardRequest } from "@/lib/api/guard";
 import { apiErrorMessage, jsonError } from "@/lib/api/responses";
 import { mimeForImageExt } from "@/lib/mime";
 import { nodeStreamToWeb } from "@/lib/stream";
+import { isDirectImageUrl } from "@/lib/image-url";
 import { assertPublicHttpUrl } from "@/lib/security/url";
 import { createDownloadStream, fetchDirectUrl } from "@/lib/ytdlp";
 import { downloadQuerySchema, sanitizeFilename } from "@/lib/validate";
@@ -40,6 +41,9 @@ export async function GET(request: NextRequest) {
       }
 
       assertPublicHttpUrl(imageUrl);
+      if (!isDirectImageUrl(imageUrl)) {
+        return jsonError(ar.notDirectImage, 400);
+      }
       const { body, contentType } = await fetchDirectUrl(imageUrl);
       const mime = mimeForImageExt(ext ?? "jpg", contentType);
 
