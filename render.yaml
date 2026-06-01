@@ -15,7 +15,6 @@ services:
       - key: HOSTNAME
         value: 0.0.0.0
       - key: YTDLP_PATH
-        value: /usr/local/bin/yt-dlp
-      # تأكد: Environment = Docker (من render.yaml أو Dockerfile)
+        value: /usr/bin/yt-dlp
       - key: DEPLOY_VERBOSE_ERRORS
         value: "true"

@@ -65,6 +65,18 @@ git push -u origin main
 
 ---
 
+## Railway — إذا فشل البناء
+
+1. تأكد أن آخر commit على GitHub **ليس** `bf22f59` فقط — يجب أن يحتوي `Dockerfile` على `apt-get install yt-dlp` (بدون `curl`).
+2. Railway → **Deployments** → **Redeploy** على أحدث commit.
+3. أو: **Settings** → **Redeploy** مع **Clear build cache**.
+4. **Variables** (بعد نشر Render):
+   - `DEPLOYMENT_PROVIDER` = `railway`
+   - `NEXT_PUBLIC_FALLBACK_URL` = `https://almonzel.onrender.com`
+   - `YTDLP_PATH` = `/usr/bin/yt-dlp`
+
+---
+
 ## الخطوة 3 — Railway (الرئيسي)
 
 1. [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub**.
