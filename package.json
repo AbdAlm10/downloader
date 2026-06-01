@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "ytdlp:update": "npx tsx scripts/update-ytdlp.ts"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.55.0",
