@@ -1,6 +1,6 @@
 /** نصوص الواجهة والأخطاء بالعربية */
 export const ar = {
-  appName: "المنزل",
+  appName: "المنزّل",
   appTagline: "فيديو · صوت · صور",
   heroTitle: "نزّل",
   heroLine2: "من أي منصة",
