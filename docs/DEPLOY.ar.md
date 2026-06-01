@@ -1,5 +1,27 @@
 # نشر المنزل — Railway (رئيسي) + Render (احتياطي)
 
+## لديك Netlify بالفعل؟ ([down-loader.netlify.app](https://down-loader.netlify.app/))
+
+**Netlify يعرض الواجهة فقط** — لا يشغّل `yt-dlp` ولا مسارات `/api/info` و `/api/download`.  
+لذلك ترى **يتصل…** و **تعذّر جلب معلومات الوسائط** عند الضغط على «تحليل».
+
+| ما تفعله | لماذا |
+|----------|--------|
+| انشر التطبيق **الكامل** على **Railway** (Docker) | المحرك + API يعملان |
+| انشر نسخة احتياطية على **Render** | عند انتهاء رصيد Railway |
+| عدّل **`netlify.toml`** في المشروع | يحوّل الزوار من Netlify → Railway وتحتفظ بنفس الرابط المعروف |
+
+بعد نشر Railway، افتح `netlify.toml` واستبدل:
+
+```toml
+to = "https://REPLACE_WITH_YOUR_RAILWAY_URL/:splat"
+```
+
+برابطك الحقيقي، ثم **أعد النشر على Netlify**.  
+الزائر يفتح `down-loader.netlify.app` → يُوجَّه فوراً إلى Railway (يعمل التحليل والتحميل).
+
+---
+
 ## الفكرة
 
 1. **Railway** = الرابط الرئيسي الذي تشاركه مع المستخدمين.
@@ -56,7 +78,8 @@ git push -u origin main
 | `NEXT_PUBLIC_GITHUB_URL` | رابط GitHub |
 | (اختياري) Umami / Sentry | |
 
-4. انشر وانسخ رابط Railway — هذا هو الرابط الذي تعلنه للمستخدمين.
+4. انشر وانسخ رابط Railway.
+5. (اختياري) حدّث `netlify.toml` وأعد نشر Netlify — يبقى رابطك `down-loader.netlify.app` يعمل عبر التحويل.
 
 ---
 
