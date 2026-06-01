@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import { ar } from "./ar";
 import { parseMediaInfo, type RawInfo } from "./formats";
+import { resolveMediaUrl } from "./resolve-media-url";
 import { assertPublicHttpUrl } from "./security/url";
 
 const BIN_DIR = path.join(process.cwd(), ".bin");
@@ -15,7 +16,6 @@ export function getBinPath(): string {
   return local;
 }
 
-/** فحص خفيف — لا يشغّل yt-dlp (مهم لـ Render health check) */
 export function checkBinaryOnDisk(): {
   ready: boolean;
   binaryPath: string;
@@ -26,18 +26,24 @@ export function checkBinaryOnDisk(): {
   return { ready: binaryExists, binaryPath, binaryExists };
 }
 
-const INFO_ARGS = [
-  "-J",
-  "--no-playlist",
-  "--no-warnings",
-  "--ignore-no-formats-error",
-  "--retries",
-  "2",
-  "--socket-timeout",
-  "25",
-  "--extractor-args",
-  "youtube:player_client=android,web",
-];
+function getInfoArgsForUrl(url: string): string[] {
+  const args = [
+    "-J",
+    "--no-playlist",
+    "--no-warnings",
+    "--ignore-no-formats-error",
+    "--retries",
+    "2",
+    "--socket-timeout",
+    /facebook|instagram|tiktok/i.test(url) ? "40" : "25",
+  ];
+
+  if (/youtube\.com|youtu\.be/i.test(url)) {
+    args.push("--extractor-args", "youtube:player_client=android,web");
+  }
+
+  return args;
+}
 
 let ytdlpInstance: YTDlpWrap | null = null;
 let initPromise: Promise<YTDlpWrap> | null = null;
@@ -79,17 +85,30 @@ export async function getYtdlp(): Promise<YTDlpWrap> {
 }
 
 function extractYtdlpError(err: unknown): string {
-  if (err instanceof Error) {
-    const msg = err.message;
-    if (msg.includes("Private video")) return ar.privateVideo;
-    if (msg.includes("Sign in") || msg.includes("login")) return ar.loginRequired;
-    if (msg.includes("Unsupported URL")) return ar.unsupportedUrl;
-    if (msg.includes("Unable to download") || msg.includes("HTTP Error")) return ar.unreachable;
-    if (msg.includes("timed out") || msg.includes("Timeout")) return ar.fetchTimeout;
-    if (msg.length > 300) return msg.slice(0, 300) + "…";
-    return msg;
+  if (!(err instanceof Error)) return ar.fetchFailed;
+
+  let msg = err.message;
+
+  const errorLine = msg.split(/\r?\n/).find((line) => line.includes("ERROR:"));
+  if (errorLine) msg = errorLine;
+
+  if (/\[facebook\]|facebook\.com/i.test(msg)) {
+    if (/login|Sign in|cookies|logged in/i.test(msg)) return ar.loginRequired;
+    return ar.facebookRestricted;
   }
-  return ar.fetchFailed;
+
+  if (msg.includes("Private video")) return ar.privateVideo;
+  if (msg.includes("Sign in") || msg.includes("login")) return ar.loginRequired;
+  if (msg.includes("Unsupported URL")) return ar.unsupportedUrl;
+  if (msg.includes("Unable to download") || msg.includes("HTTP Error")) return ar.unreachable;
+  if (msg.includes("timed out") || msg.includes("Timeout")) return ar.fetchTimeout;
+
+  if (msg.includes("Command failed:") || msg.includes("yt-dlp")) {
+    return ar.fetchFailed;
+  }
+
+  if (msg.length > 280) return msg.slice(0, 280) + "…";
+  return msg;
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
@@ -109,22 +128,20 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 
 async function fetchRawInfo(ytdlp: YTDlpWrap, url: string): Promise<RawInfo> {
   const run = async () => {
-    try {
-      const stdout = await ytdlp.execPromise([url, ...INFO_ARGS]);
-      return JSON.parse(stdout) as RawInfo;
-    } catch {
-      return (await ytdlp.getVideoInfo([url, ...INFO_ARGS])) as RawInfo;
-    }
+    const stdout = await ytdlp.execPromise([url, ...getInfoArgsForUrl(url)]);
+    return JSON.parse(stdout) as RawInfo;
   };
 
-  return withTimeout(run(), 50_000, ar.fetchTimeout);
+  return withTimeout(run(), 55_000, ar.fetchTimeout);
 }
 
 export async function fetchMediaInfo(url: string) {
   const ytdlp = await getYtdlp();
+  const resolvedUrl = await resolveMediaUrl(url);
+
   try {
-    const raw = await fetchRawInfo(ytdlp, url);
-    return parseMediaInfo(raw, url);
+    const raw = await fetchRawInfo(ytdlp, resolvedUrl);
+    return parseMediaInfo(raw, resolvedUrl);
   } catch (err) {
     throw new Error(extractYtdlpError(err));
   }

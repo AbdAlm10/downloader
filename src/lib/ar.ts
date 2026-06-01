@@ -63,6 +63,8 @@ export const ar = {
   engineInitFailed: "تعذّر تهيئة المحرك",
   privateVideo: "محتوى خاص أو غير متاح.",
   loginRequired: "يتطلب تسجيل دخول على المنصة.",
+  facebookRestricted:
+    "فيسبوك لا يتيح التحميل من السيرفر لروابط المشاركة. انسخ الرابط من تطبيق فيسبوك (فيديو/reel) أو جرّب منصة أخرى.",
   unsupportedUrl: "رابط غير مدعوم.",
   unreachable: "تعذّر الوصول للمنصة.",
   untitled: "بدون عنوان",
