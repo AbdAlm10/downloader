@@ -136,6 +136,7 @@ export function DownloaderApp() {
       const usePrepare =
         /youtube|يوتيوب/i.test(info.platform) &&
         mediaType !== "image" &&
+        !format.directUrl &&
         !usesAltYoutubeDownload(selectedFormatId, format.directUrl);
 
       let downloadUrl: string;

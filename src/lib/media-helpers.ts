@@ -40,8 +40,13 @@ export function buildDownloadParams(
     ext: format.ext,
   });
 
+  const isYoutube = /youtube|يوتيوب/i.test(info.platform);
+
   if (format.directUrl) {
     params.set("directUrl", format.directUrl);
+    if (isYoutube) {
+      params.set("url", info.webpageUrl);
+    }
   } else {
     params.set("url", info.webpageUrl);
     const needsMerge =

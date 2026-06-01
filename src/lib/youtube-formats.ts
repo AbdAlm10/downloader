@@ -113,25 +113,18 @@ function stableYouTubeThumbnail(videoId: string): string {
   return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 }
 
-/** Fill video/audio tabs when yt-dlp listed metadata but no stream formats (common on cloud hosts). */
+/** Stable thumbnail only — do not inject yt-dlp preset IDs (they fail with bot checks on cloud IPs). */
 export function applyYouTubeFormatPresets(info: ParsedMediaInfo): ParsedMediaInfo {
   if (!isYouTubeMedia(info)) return info;
-
-  const videoFormats =
-    info.videoFormats.length > 0 ? info.videoFormats : [...YOUTUBE_VIDEO_PRESETS];
-  const audioFormats =
-    info.audioFormats.length > 0 ? info.audioFormats : [...YOUTUBE_AUDIO_PRESETS];
 
   const thumbnail =
     info.id && info.id !== "media" ? stableYouTubeThumbnail(info.id) : info.thumbnail;
 
-  const imageFormats = videoFormats.length > 0 ? [] : info.imageFormats;
+  const imageFormats = info.videoFormats.length > 0 ? [] : info.imageFormats;
 
   return {
     ...info,
     thumbnail,
-    videoFormats,
-    audioFormats,
     imageFormats,
   };
 }

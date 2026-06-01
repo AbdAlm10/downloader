@@ -3,6 +3,7 @@ import { guardRequest, parseJsonBody } from "@/lib/api/guard";
 import { apiErrorMessage, jsonApiError } from "@/lib/api/responses";
 import { createDownloadSession } from "@/lib/download-session";
 import { downloadToTempFile } from "@/lib/ytdlp";
+import { isBlockedYoutubeYtdlpFormat, isYoutubeUrl } from "@/lib/youtube";
 import { downloadPrepareSchema } from "@/lib/validate";
 
 export const maxDuration = 300;
@@ -22,6 +23,11 @@ export async function POST(request: Request) {
     }
 
     const { url, formatId, title, ext, merge } = parsed.data;
+
+    if (isYoutubeUrl(url) && isBlockedYoutubeYtdlpFormat(formatId)) {
+      return jsonApiError(ar.youtubeEngineMissing, 422);
+    }
+
     const tmpPath = await downloadToTempFile(url, formatId, merge ?? false);
     const token = createDownloadSession({
       url,

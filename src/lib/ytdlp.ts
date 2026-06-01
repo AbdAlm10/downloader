@@ -10,7 +10,10 @@ import { ar } from "./ar";
 import { parseMediaInfo, type RawInfo } from "./formats";
 import { resolveMediaUrl } from "./resolve-media-url";
 import { assertPublicHttpUrl } from "./security/url";
-import { applyYouTubeFormatPresets, resolveYoutubeFormatSpec } from "./youtube-formats";
+import {
+  isYoutubePresetFormatId,
+  resolveYoutubeFormatSpec,
+} from "./youtube-formats";
 import { fetchYoutubeMediaInfo, isYoutubeUrl } from "./youtube";
 import { createInnertubeDownloadStream, isInnertubeFormatId } from "./youtube-innertube";
 import { isPipedFormatId } from "./youtube-piped";
@@ -327,7 +330,7 @@ async function fetchRawInfo(url: string): Promise<RawInfo> {
   return raw;
 }
 
-function extractYtdlpError(err: unknown): string {
+export function extractYtdlpError(err: unknown): string {
   if (!(err instanceof Error)) return ar.fetchFailed;
 
   if (err.message === ar.youtubeEngineMissing || err.message === ar.fetchTimeout) {
@@ -354,7 +357,12 @@ function extractYtdlpError(err: unknown): string {
   }
 
   if (msg.includes("Private video")) return ar.privateVideo;
-  if (msg.includes("Sign in") || msg.includes("login")) return ar.loginRequired;
+  if (
+    /Sign in|not a bot|LOGIN_REQUIRED|confirm you/i.test(msg) ||
+    msg.includes("login")
+  ) {
+    return isYouTubeUrl(msg) ? ar.youtubeEngineMissing : ar.loginRequired;
+  }
   if (msg.includes("Unsupported URL")) return ar.unsupportedUrl;
   if (msg.includes("Unable to download") || msg.includes("HTTP Error")) return ar.unreachable;
   if (msg.includes("timed out") || msg.includes("Timeout")) return ar.fetchTimeout;
@@ -386,16 +394,20 @@ export async function fetchMediaInfo(url: string) {
   const resolvedUrl = await resolveMediaUrl(url);
 
   if (isYouTubeUrl(resolvedUrl)) {
-    const alt = await fetchYoutubeMediaInfo(resolvedUrl);
+    const alt = await withTimeout(
+      fetchYoutubeMediaInfo(resolvedUrl),
+      FETCH_MEDIA_TIMEOUT_MS,
+      ar.fetchTimeout
+    );
     if (alt) return alt;
+    throw new Error(ar.youtubeEngineMissing);
   }
 
   await getYtdlp();
 
   try {
     const raw = await withTimeout(fetchRawInfo(resolvedUrl), FETCH_MEDIA_TIMEOUT_MS, ar.fetchTimeout);
-    const info = parseMediaInfo(raw, resolvedUrl);
-    return isYouTubeUrl(resolvedUrl) ? applyYouTubeFormatPresets(info) : info;
+    return parseMediaInfo(raw, resolvedUrl);
   } catch (err) {
     throw new Error(extractYtdlpError(err));
   }
@@ -572,9 +584,9 @@ export async function downloadToTempFile(
     proc.on("close", (code) => {
       if (code === 0) resolve();
       else {
-        const msg = stderr.split("\n").find((l) => l.includes("ERROR:")) ?? ar.downloadFailed;
+        const raw = stderr.split("\n").find((l) => l.includes("ERROR:")) ?? ar.downloadFailed;
         fs.unlink(tmpPath, () => {});
-        reject(new Error(msg));
+        reject(new Error(extractYtdlpError(new Error(raw))));
       }
     });
   });
@@ -582,6 +594,10 @@ export async function downloadToTempFile(
 }
 
 export function createDownloadStream(url: string, formatId: string, merge = false): Readable {
+  if (isYoutubeUrl(url) && isYoutubePresetFormatId(formatId)) {
+    throw new Error(ar.youtubeEngineMissing);
+  }
+
   if (isInnertubeFormatId(formatId)) {
     const output = new PassThrough();
     void createInnertubeDownloadStream(url, formatId)
