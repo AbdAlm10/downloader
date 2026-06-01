@@ -129,8 +129,8 @@ NEXT_PUBLIC_FALLBACK_URL=http://localhost:3001
 
 ## ملاحظات
 
-- **ffmpeg** + **python3** + **yt-dlp** + **Deno** مثبتان في Docker (مطلوب ليوتيوب).
-- بدون **JS runtime** (Deno/Node) يوتيوب يعرض **صورة الغلاف فقط** — محلياً يعمل لأن Node موجود على جهازك.
+- **ffmpeg** + **python3** + **yt-dlp** + **yt-dlp-ejs** + **Deno** في Docker (مطلوب ليوتيوب).
+- يوتيوب يحتاج **JS runtime** (Deno/Node) و **`--remote-components ejs:github`** — بدونهما تظهر **صورة الغلاف فقط**.
 - بعد أي تعديل: Render → **Manual Deploy** → **Clear build cache & deploy**.
 - في لوحة Render: **Runtime = Docker** (ليس Node).
 - تحقق: `/api/health` يجب أن يعيد `"ready":true` و `"version":"..."`.

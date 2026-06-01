@@ -1,4 +1,6 @@
 import YTDlpWrap from "yt-dlp-wrap";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import path from "path";
 import fs from "fs";
 import { ar } from "./ar";
@@ -6,7 +8,10 @@ import { parseMediaInfo, type RawInfo } from "./formats";
 import { resolveMediaUrl } from "./resolve-media-url";
 import { assertPublicHttpUrl } from "./security/url";
 
+const execFileAsync = promisify(execFile);
 const BIN_DIR = path.join(process.cwd(), ".bin");
+
+const YTDLP_CONFIG_PATH = "/etc/yt-dlp.conf";
 
 export function getBinPath(): string {
   const fromEnv = process.env.YTDLP_PATH?.trim();
@@ -24,6 +29,15 @@ export function checkBinaryOnDisk(): {
   const binaryPath = getBinPath();
   const binaryExists = fs.existsSync(binaryPath);
   return { ready: binaryExists, binaryPath, binaryExists };
+}
+
+export function getYtdlpRuntimeStatus() {
+  return {
+    deno: resolveRuntimeBin("deno"),
+    node: resolveRuntimeBin("node"),
+    config: fs.existsSync(YTDLP_CONFIG_PATH) ? YTDLP_CONFIG_PATH : null,
+    ejs: "ejs:github",
+  };
 }
 
 function isYouTubeUrl(url: string): boolean {
@@ -44,19 +58,31 @@ function resolveRuntimeBin(name: "deno" | "node"): string | null {
   return null;
 }
 
-/** YouTube يتطلب JS runtime (Deno أو Node) وإلا تُرجع الصور المصغّرة فقط */
-function getJsRuntimeArgs(): string[] {
+/** YouTube: JS runtime + EJS scripts (pip yt-dlp requires both since 2025.11) */
+function getYouTubeArgs(): string[] {
   const runtimes: string[] = [];
   const deno = resolveRuntimeBin("deno");
   const node = resolveRuntimeBin("node");
   if (deno) runtimes.push(`deno:${deno}`);
   if (node) runtimes.push(`node:${node}`);
-  if (runtimes.length === 0) return [];
-  return ["--js-runtimes", runtimes.join(",")];
+
+  const args: string[] = ["--remote-components", "ejs:github"];
+  if (runtimes.length > 0) {
+    args.unshift("--js-runtimes", runtimes.join(","));
+  }
+  return args;
+}
+
+function getConfigArgs(): string[] {
+  if (fs.existsSync(YTDLP_CONFIG_PATH)) {
+    return ["--config-location", YTDLP_CONFIG_PATH];
+  }
+  return [];
 }
 
 function getInfoArgsForUrl(url: string): string[] {
   const args = [
+    ...getConfigArgs(),
     "-J",
     "--no-playlist",
     "--no-warnings",
@@ -64,20 +90,29 @@ function getInfoArgsForUrl(url: string): string[] {
     "--retries",
     "2",
     "--socket-timeout",
-    /facebook|instagram|tiktok/i.test(url) ? "40" : isYouTubeUrl(url) ? "60" : "25",
+    /facebook|instagram|tiktok/i.test(url) ? "40" : isYouTubeUrl(url) ? "90" : "25",
   ];
 
   if (isYouTubeUrl(url)) {
-    args.push(...getJsRuntimeArgs());
+    args.push(...getYouTubeArgs());
   }
 
   return args;
 }
 
 function getDownloadArgsForUrl(url: string): string[] {
-  const args = ["--no-playlist", "--no-warnings"];
-  if (isYouTubeUrl(url)) args.push(...getJsRuntimeArgs());
+  const args = [...getConfigArgs(), "--no-playlist", "--no-warnings"];
+  if (isYouTubeUrl(url)) args.push(...getYouTubeArgs());
   return args;
+}
+
+function ytdlpEnv(): NodeJS.ProcessEnv {
+  const extra = "/usr/local/bin";
+  const pathEnv = process.env.PATH ?? "";
+  return {
+    ...process.env,
+    PATH: pathEnv.includes(extra) ? pathEnv : `${extra}:${pathEnv}`,
+  };
 }
 
 let ytdlpInstance: YTDlpWrap | null = null;
@@ -119,13 +154,45 @@ export async function getYtdlp(): Promise<YTDlpWrap> {
   return initPromise;
 }
 
+/** execFile مباشرة — PATH صحيح + maxBuffer كبير لـ JSON يوتيوب */
+async function runYtdlp(args: string[]): Promise<string> {
+  const binaryPath = await ensureBinary();
+  const { stdout } = await execFileAsync(binaryPath, args, {
+    maxBuffer: 64 * 1024 * 1024,
+    env: ytdlpEnv(),
+  });
+  return stdout;
+}
+
+function countYouTubeStreamFormats(raw: RawInfo): { video: number; audio: number } {
+  const formats = raw.formats ?? [];
+  let video = 0;
+  let audio = 0;
+  for (const f of formats) {
+    const v = f.vcodec ?? "none";
+    const a = f.acodec ?? "none";
+    if (v !== "none") video++;
+    else if (a !== "none") audio++;
+  }
+  return { video, audio };
+}
+
 function extractYtdlpError(err: unknown): string {
   if (!(err instanceof Error)) return ar.fetchFailed;
 
   let msg = err.message;
+  const stderr =
+    err && typeof err === "object" && "stderr" in err && typeof err.stderr === "string"
+      ? err.stderr
+      : "";
 
-  const errorLine = msg.split(/\r?\n/).find((line) => line.includes("ERROR:"));
+  const combined = `${msg}\n${stderr}`;
+  const errorLine = combined.split(/\r?\n/).find((line) => line.includes("ERROR:"));
   if (errorLine) msg = errorLine;
+
+  if (/JavaScript runtime|js-runtimes|ejs:github|remote-components/i.test(combined)) {
+    return ar.youtubeEngineMissing;
+  }
 
   if (/\[facebook\]|facebook\.com/i.test(msg)) {
     if (/login|Sign in|cookies|logged in/i.test(msg)) return ar.loginRequired;
@@ -161,21 +228,26 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
   });
 }
 
-async function fetchRawInfo(ytdlp: YTDlpWrap, url: string): Promise<RawInfo> {
-  const run = async () => {
-    const stdout = await ytdlp.execPromise([...getInfoArgsForUrl(url), url]);
-    return JSON.parse(stdout) as RawInfo;
-  };
-
-  return withTimeout(run(), 55_000, ar.fetchTimeout);
+async function fetchRawInfo(url: string): Promise<RawInfo> {
+  const args = [...getInfoArgsForUrl(url), url];
+  const stdout = await runYtdlp(args);
+  return JSON.parse(stdout) as RawInfo;
 }
 
 export async function fetchMediaInfo(url: string) {
-  const ytdlp = await getYtdlp();
+  await getYtdlp();
   const resolvedUrl = await resolveMediaUrl(url);
 
   try {
-    const raw = await fetchRawInfo(ytdlp, resolvedUrl);
+    let raw = await withTimeout(fetchRawInfo(resolvedUrl), 85_000, ar.fetchTimeout);
+
+    if (isYouTubeUrl(resolvedUrl)) {
+      const { video, audio } = countYouTubeStreamFormats(raw);
+      if (video === 0 && audio === 0) {
+        throw new Error(ar.youtubeEngineMissing);
+      }
+    }
+
     return parseMediaInfo(raw, resolvedUrl);
   } catch (err) {
     throw new Error(extractYtdlpError(err));
@@ -198,7 +270,7 @@ export async function createDownloadStream(url: string, formatId: string, merge 
     args.splice(args.length - 2, 0, "--merge-output-format", "mp4");
   }
 
-  return ytdlp.execStream(args);
+  return ytdlp.execStream(args, { env: ytdlpEnv() });
 }
 
 export async function fetchDirectUrl(sourceUrl: string): Promise<{

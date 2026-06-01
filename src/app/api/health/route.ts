@@ -1,5 +1,5 @@
 import { guardRequest } from "@/lib/api/guard";
-import { checkBinaryOnDisk } from "@/lib/ytdlp";
+import { checkBinaryOnDisk, getYtdlpRuntimeStatus } from "@/lib/ytdlp";
 
 export const dynamic = "force-dynamic";
 
@@ -8,5 +8,11 @@ export async function GET(request: Request) {
   const limited = guardRequest(request, "health");
   if (limited) return limited;
 
-  return Response.json(checkBinaryOnDisk());
+  const disk = checkBinaryOnDisk();
+  const verbose = process.env.DEPLOY_VERBOSE_ERRORS === "true";
+
+  return Response.json({
+    ...disk,
+    ...(verbose ? { runtime: getYtdlpRuntimeStatus() } : {}),
+  });
 }

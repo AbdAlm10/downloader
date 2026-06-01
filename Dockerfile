@@ -14,7 +14,7 @@ RUN apt-get update \
     unzip \
     python3 \
     python3-pip \
-  && pip3 install --break-system-packages --no-cache-dir -U yt-dlp curl-cffi \
+  && pip3 install --break-system-packages --no-cache-dir -U yt-dlp curl-cffi yt-dlp-ejs \
   && curl -fsSL https://deno.land/install.sh | sh \
   && /usr/local/bin/deno --version \
   && /usr/local/bin/yt-dlp --version \
@@ -22,6 +22,8 @@ RUN apt-get update \
   && node -e "process.exit(0)" \
   && deno eval "Deno.exit(0)" \
   && rm -rf /var/lib/apt/lists/*
+
+COPY config/yt-dlp.conf /etc/yt-dlp.conf
 
 WORKDIR /app
 
