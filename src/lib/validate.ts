@@ -8,6 +8,8 @@ const NUMERIC_FORMAT_ID = /^[a-zA-Z0-9+._:-]+$/;
 
 function isAllowedFormatId(id: string): boolean {
   if (id in YT_FORMAT_SPECS) return true;
+  if (/^piped-(?:v|vo|a)-[\w-]+$/.test(id)) return true;
+  if (/^inn-(?:a-)?[\w-]+$/.test(id)) return true;
   return id.length <= 64 && NUMERIC_FORMAT_ID.test(id);
 }
 

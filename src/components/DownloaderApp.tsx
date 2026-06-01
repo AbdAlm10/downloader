@@ -14,6 +14,7 @@ import {
   formatsForType,
 } from "@/lib/media-helpers";
 import { isYoutubePresetFormatId } from "@/lib/youtube-formats";
+import { usesAltYoutubeDownload } from "@/lib/youtube";
 import type { ApiResponse, MediaInfo, MediaType } from "@/lib/types";
 import { TopBar } from "./TopBar";
 import { HeroSection } from "./HeroSection";
@@ -132,12 +133,14 @@ export function DownloaderApp() {
     setDownloadProgress({ loaded: 0, total: format.filesize ?? null, percent: 0 });
 
     try {
-      const isYoutube =
-        /youtube|يوتيوب/i.test(info.platform) && mediaType !== "image" && !format.directUrl;
+      const usePrepare =
+        /youtube|يوتيوب/i.test(info.platform) &&
+        mediaType !== "image" &&
+        !usesAltYoutubeDownload(selectedFormatId, format.directUrl);
 
       let downloadUrl: string;
 
-      if (isYoutube) {
+      if (usePrepare) {
         setPreparingDownload(true);
         const merge =
           mediaType === "video" &&

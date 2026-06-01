@@ -11,6 +11,9 @@ import { parseMediaInfo, type RawInfo } from "./formats";
 import { resolveMediaUrl } from "./resolve-media-url";
 import { assertPublicHttpUrl } from "./security/url";
 import { applyYouTubeFormatPresets, resolveYoutubeFormatSpec } from "./youtube-formats";
+import { fetchYoutubeMediaInfo, isYoutubeUrl } from "./youtube";
+import { createInnertubeDownloadStream, isInnertubeFormatId } from "./youtube-innertube";
+import { isPipedFormatId } from "./youtube-piped";
 
 const execFileAsync = promisify(execFile);
 const BIN_DIR = path.join(process.cwd(), ".bin");
@@ -65,7 +68,7 @@ export function getYtdlpRuntimeStatus() {
 }
 
 function isYouTubeUrl(url: string): boolean {
-  return /youtube\.com|youtu\.be/i.test(url);
+  return isYoutubeUrl(url);
 }
 
 function resolveRuntimeBin(name: "deno" | "node"): string | null {
@@ -380,8 +383,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
 }
 
 export async function fetchMediaInfo(url: string) {
-  await getYtdlp();
   const resolvedUrl = await resolveMediaUrl(url);
+
+  if (isYouTubeUrl(resolvedUrl)) {
+    const alt = await fetchYoutubeMediaInfo(resolvedUrl);
+    if (alt) return alt;
+  }
+
+  await getYtdlp();
 
   try {
     const raw = await withTimeout(fetchRawInfo(resolvedUrl), FETCH_MEDIA_TIMEOUT_MS, ar.fetchTimeout);
@@ -573,6 +582,22 @@ export async function downloadToTempFile(
 }
 
 export function createDownloadStream(url: string, formatId: string, merge = false): Readable {
+  if (isInnertubeFormatId(formatId)) {
+    const output = new PassThrough();
+    void createInnertubeDownloadStream(url, formatId)
+      .then((src) => {
+        src.on("data", (chunk) => output.write(chunk));
+        src.on("end", () => output.end());
+        src.on("error", (err) => output.destroy(err));
+      })
+      .catch((err) => output.destroy(err instanceof Error ? err : new Error(ar.downloadFailed)));
+    return output;
+  }
+
+  if (isPipedFormatId(formatId)) {
+    throw new Error(ar.downloadFailed);
+  }
+
   const output = new PassThrough();
   if (useFileDownload()) {
     attachFileTailDownload(output, url, formatId, merge);
@@ -604,11 +629,19 @@ export async function fetchDirectUrl(sourceUrl: string): Promise<{
 }> {
   assertPublicHttpUrl(sourceUrl);
 
+  const isGoogleVideo = /googlevideo\.com|gvt1\.com|youtube\.com\/videoplayback/i.test(sourceUrl);
+
   const res = await fetch(sourceUrl, {
     headers: {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       Accept: "*/*",
+      ...(isGoogleVideo
+        ? {
+            Referer: "https://www.youtube.com/",
+            Origin: "https://www.youtube.com",
+          }
+        : {}),
     },
     signal: AbortSignal.timeout(120_000),
   });

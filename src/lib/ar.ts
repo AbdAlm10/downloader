@@ -58,7 +58,7 @@ export const ar = {
   noFormats: "لم يُعثر على صيغ قابلة للتحميل.",
   fetchFailed: "تعذّر جلب معلومات الوسائط",
   youtubeEngineMissing:
-    "تعذّر تحليل يوتيوب. أعد المحاولة بعد دقيقة، أو جرّب رابطاً آخر. إن استمرّ الخطأ: أعد نشر السيرفر (Docker) أو حدّث yt-dlp محلياً.",
+    "تعذّر تحليل يوتيوب. جرّب رابطاً آخر أو انتظر قليلاً ثم أعد التحليل.",
   fetchTimeout: "استغرق التحليل وقتاً طويلاً — حاول مجدداً (قد يكون السيرفر بارداً)",
   missingImageUrl: "رابط الصورة مفقود",
   missingMediaUrl: "رابط الوسائط مفقود",
@@ -78,6 +78,7 @@ export const ar = {
   bestQuality: "أفضل جودة",
   orLower: "أو أقل",
   videoLabel: "فيديو",
+  videoOnly: "فيديو فقط",
   audioLabel: "صوت",
   imageLabel: "صورة",
   widthPx: (w: number) => `${w} بكسل`,

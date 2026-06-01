@@ -70,17 +70,22 @@ export async function GET(request: NextRequest) {
       }
 
       assertPublicHttpUrl(streamUrl);
+      const isAltVideo =
+        formatId.startsWith("piped-") ||
+        formatId.startsWith("inn-") ||
+        /googlevideo\.com|gvt1\.com|videoplayback/i.test(streamUrl);
       const isImage =
         formatId.startsWith("img-") ||
         isDirectImageUrl(streamUrl) ||
         /^(jpe?g|png|webp|gif|avif|bmp)$/i.test(ext ?? "");
-      if (!isImage && !formatId.startsWith("inv-")) {
+      if (!isImage && !isAltVideo) {
         return jsonError(ar.notDirectImage, 400);
       }
       const { body, contentType } = await fetchDirectUrl(streamUrl);
-      const mime = isImage
-        ? mimeForImageExt(ext ?? "jpg", contentType)
-        : mimeForMediaExt(ext ?? "mp4", contentType);
+      const mime =
+        isImage && !isAltVideo
+          ? mimeForImageExt(ext ?? "jpg", contentType)
+          : mimeForMediaExt(ext ?? "mp4", contentType);
 
       return new NextResponse(body, {
         headers: {
