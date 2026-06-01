@@ -6,7 +6,16 @@ import { parseMediaInfo, type RawInfo } from "./formats";
 import { assertPublicHttpUrl } from "./security/url";
 
 const BIN_DIR = path.join(process.cwd(), ".bin");
-const BIN_PATH = path.join(BIN_DIR, process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp");
+
+function getBinPath(): string {
+  const fromEnv = process.env.YTDLP_PATH?.trim();
+  if (fromEnv && fs.existsSync(fromEnv)) return fromEnv;
+
+  const local = path.join(BIN_DIR, process.platform === "win32" ? "yt-dlp.exe" : "yt-dlp");
+  if (fs.existsSync(local)) return local;
+
+  return local;
+}
 
 const INFO_ARGS = [
   "-J",
@@ -21,21 +30,24 @@ const INFO_ARGS = [
 
 let ytdlpInstance: YTDlpWrap | null = null;
 let initPromise: Promise<YTDlpWrap> | null = null;
+let lastInitError: string | undefined;
 
 async function ensureBinary(): Promise<string> {
-  if (fs.existsSync(BIN_PATH)) {
+  const binPath = getBinPath();
+
+  if (fs.existsSync(binPath)) {
     try {
-      fs.accessSync(BIN_PATH, fs.constants.X_OK);
+      fs.accessSync(binPath, fs.constants.X_OK);
     } catch {
-      fs.chmodSync(BIN_PATH, 0o755);
+      fs.chmodSync(binPath, 0o755);
     }
-    return BIN_PATH;
+    return binPath;
   }
 
   fs.mkdirSync(BIN_DIR, { recursive: true });
-  await YTDlpWrap.downloadFromGithub(BIN_PATH, undefined, process.platform);
-  fs.chmodSync(BIN_PATH, 0o755);
-  return BIN_PATH;
+  await YTDlpWrap.downloadFromGithub(binPath, undefined, process.platform);
+  fs.chmodSync(binPath, 0o755);
+  return binPath;
 }
 
 export async function getYtdlp(): Promise<YTDlpWrap> {
@@ -43,9 +55,18 @@ export async function getYtdlp(): Promise<YTDlpWrap> {
 
   if (!initPromise) {
     initPromise = (async () => {
-      const binaryPath = await ensureBinary();
-      ytdlpInstance = new YTDlpWrap(binaryPath);
-      return ytdlpInstance;
+      try {
+        const binaryPath = await ensureBinary();
+        const instance = new YTDlpWrap(binaryPath);
+        await instance.getVersion();
+        ytdlpInstance = instance;
+        lastInitError = undefined;
+        return instance;
+      } catch (err) {
+        lastInitError = err instanceof Error ? err.message : String(err);
+        initPromise = null;
+        throw err;
+      }
     })();
   }
 
@@ -133,13 +154,32 @@ export async function fetchDirectUrl(sourceUrl: string): Promise<{
 export async function checkYtdlpReady(): Promise<{
   ready: boolean;
   version?: string;
+  binaryPath?: string;
   binaryExists?: boolean;
+  initError?: string;
 }> {
+  const binaryPath = getBinPath();
+  const binaryExists = fs.existsSync(binaryPath);
+
   try {
     const ytdlp = await getYtdlp();
     const version = await ytdlp.getVersion();
-    return { ready: true, version: version?.trim(), binaryExists: fs.existsSync(BIN_PATH) };
+    return {
+      ready: true,
+      version: version?.trim(),
+      binaryPath,
+      binaryExists,
+    };
   } catch {
-    return { ready: false, binaryExists: fs.existsSync(BIN_PATH) };
+    const verbose =
+      process.env.DEPLOY_VERBOSE_ERRORS === "true" ||
+      process.env.NODE_ENV === "development";
+
+    return {
+      ready: false,
+      binaryPath,
+      binaryExists,
+      initError: verbose ? lastInitError : undefined,
+    };
   }
 }

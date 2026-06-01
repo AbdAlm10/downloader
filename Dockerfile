@@ -1,8 +1,15 @@
 FROM node:20-bookworm-slim
 
+# yt-dlp = سكربت Python — يُثبَّت عبر pip (لا تستخدم curl للملف الخام بدون python3)
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ffmpeg ca-certificates curl \
-  && rm -rf /var/lib/apt/lists/*
+  && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    ca-certificates \
+    python3 \
+    python3-pip \
+  && pip3 install --break-system-packages --no-cache-dir "yt-dlp[default]" \
+  && rm -rf /var/lib/apt/lists/* \
+  && yt-dlp --version
 
 WORKDIR /app
 
@@ -12,11 +19,8 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-# تثبيت yt-dlp وقت البناء — Render لا يعتمد على تنزيل GitHub عند أول طلب
-RUN mkdir -p .bin \
-  && curl -fsSL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" -o .bin/yt-dlp \
-  && chmod +x .bin/yt-dlp \
-  && .bin/yt-dlp --version
+ENV YTDLP_PATH=/usr/local/bin/yt-dlp
+RUN mkdir -p .bin && ln -sf "${YTDLP_PATH}" .bin/yt-dlp
 
 ENV NODE_ENV=production
 ENV PORT=3000

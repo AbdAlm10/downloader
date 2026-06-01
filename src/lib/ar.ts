@@ -26,7 +26,8 @@ export const ar = {
   requestTooLarge: "الطلب كبير جداً",
   invalidExtension: "صيغة الملف غير مدعومة",
 
-  engineInitializing: "جاري تجهيز المحرك — انتظر لحظة ثم حدّث الصفحة",
+  engineInitializing: "جاري تجهيز المحرك — انتظر دقيقة ثم حدّث الصفحة",
+  engineNotReady: "المحرك غير جاهز — انتظر قليلاً أو حدّث الصفحة",
   ready: "متصل",
   noPreview: "بدون معاينة",
 

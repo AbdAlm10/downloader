@@ -42,10 +42,15 @@ export function DownloaderApp() {
   useFailover();
 
   useEffect(() => {
-    fetch("/api/health")
-      .then((r) => r.json())
-      .then((d: { ready?: boolean }) => setEngineReady(d.ready === true))
-      .catch(() => setEngineReady(false));
+    const check = () =>
+      fetch("/api/health", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((d: { ready?: boolean }) => setEngineReady(d.ready === true))
+        .catch(() => setEngineReady(false));
+
+    check();
+    const id = window.setInterval(check, 15_000);
+    return () => window.clearInterval(id);
   }, []);
 
   const currentFormats = info ? formatsForType(info, mediaType) : [];
@@ -171,7 +176,7 @@ export function DownloaderApp() {
 
                 {engineReady === false && (
                   <p className="mt-3 text-center text-[12px] font-light text-[var(--text-secondary)]">
-                    {ar.engineInitializing}
+                    {ar.engineNotReady}
                   </p>
                 )}
 

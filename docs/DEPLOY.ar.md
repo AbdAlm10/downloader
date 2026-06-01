@@ -117,6 +117,20 @@ NEXT_PUBLIC_FALLBACK_URL=http://localhost:3001
 
 ## ملاحظات
 
-- **ffmpeg** مثبت في Docker — مطلوب لدمج فيديو+صوت.
+- **ffmpeg** + **python3** + **yt-dlp** مثبتان في Docker (مطلوب).
+- بعد أي تعديل: Render → **Manual Deploy** → **Clear build cache & deploy**.
+- في لوحة Render: **Runtime = Docker** (ليس Node).
+- تحقق: `/api/health` يجب أن يعيد `"ready":true` و `"version":"..."`.
 - أول طلب على Render المجاني قد يكون بطيئاً (خمول ~50 ثانية).
 - حد الطلبات (rate limit) مفعّل في API — مناسب لأقل من ~1000 مستخدم نشط.
+
+### خطأ بناء Docker: `python3: No such file or directory`
+
+يعني أن النشر يستخدم **Dockerfile قديم** (خطوة `curl` لـ yt-dlp).  
+ادفع آخر commit ثم **Clear build cache & deploy**.  
+الـ Dockerfile الصحيح يثبت `python3` + `pip install yt-dlp` — بدون `curl`.
+
+### إذا بقي `ready: false`
+
+1. افتح **Logs** في Render أثناء البناء — يجب أن ترى `yt-dlp --version` ناجحاً.
+2. أضف `DEPLOY_VERBOSE_ERRORS=true` وافتح `/api/health` لرؤية `initError`.
