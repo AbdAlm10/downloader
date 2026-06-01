@@ -9,10 +9,16 @@ import { cn } from "@/lib/utils";
 interface DownloadProgressProps {
   progress: DownloadProgressState;
   onCancel: () => void;
+  statusLabel?: string;
   className?: string;
 }
 
-export function DownloadProgress({ progress, onCancel, className }: DownloadProgressProps) {
+export function DownloadProgress({
+  progress,
+  onCancel,
+  statusLabel,
+  className,
+}: DownloadProgressProps) {
   const { loaded, total, percent } = progress;
   const known = percent !== null && total !== null && total > 0;
   const displayPercent = known ? percent : null;
@@ -22,7 +28,9 @@ export function DownloadProgress({ progress, onCancel, className }: DownloadProg
       <div className="flex items-center gap-2">
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex items-center justify-between gap-2 text-[12px] font-medium">
-            <span className="text-[var(--text-secondary)]">{ar.downloadingProgress}</span>
+            <span className="text-[var(--text-secondary)]">
+              {statusLabel ?? ar.downloadingProgress}
+            </span>
             <span className="shrink-0 tabular-nums text-[var(--text)]" dir="ltr">
               {displayPercent !== null
                 ? `${displayPercent}% · ${formatFileSize(loaded)}${total ? ` / ${formatFileSize(total)}` : ""}`

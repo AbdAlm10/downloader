@@ -1,8 +1,11 @@
 import YTDlpWrap from "yt-dlp-wrap";
-import { execFile } from "child_process";
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from "child_process";
+import { randomUUID } from "crypto";
 import { promisify } from "util";
 import path from "path";
 import fs from "fs";
+import os from "os";
+import { PassThrough, type Readable } from "stream";
 import { ar } from "./ar";
 import { parseMediaInfo, type RawInfo } from "./formats";
 import { resolveMediaUrl } from "./resolve-media-url";
@@ -409,16 +412,174 @@ function needsMerge(formatId: string, mergeFlag: boolean): boolean {
   return mergeFlag || spec.includes("+");
 }
 
-export async function createDownloadStream(url: string, formatId: string, merge = false) {
-  const ytdlp = await getYtdlp();
+function useFileDownload(): boolean {
+  if (process.env.YTDLP_USE_FILE_DOWNLOAD === "false") return false;
+  return process.platform !== "win32";
+}
+
+async function waitForFileData(filePath: string, maxMs: number): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    try {
+      if (fs.statSync(filePath).size > 0) return;
+    } catch {
+      /* file not created yet */
+    }
+    await new Promise((r) => setTimeout(r, 120));
+  }
+  throw new Error(ar.fetchTimeout);
+}
+
+function buildDownloadArgs(url: string, formatId: string, merge: boolean, outputPath: string) {
   const formatSpec = buildFormatSpec(formatId, merge);
   const doMerge = needsMerge(formatId, merge);
-  // execStream() always appends "-o -" — do not pass it here (duplicate breaks downloads).
-  const args = [...getDownloadArgsForUrl(url)];
+  const args = [
+    ...getDownloadArgsForUrl(url),
+    "--no-part",
+    "--retries",
+    "3",
+    "-f",
+    formatSpec,
+    "-o",
+    outputPath,
+  ];
   if (doMerge) args.push("--merge-output-format", "mp4");
-  args.push("-f", formatSpec, url);
+  args.push(url);
+  return args;
+}
 
-  return ytdlp.execStream(args, { env: ytdlpEnv() });
+/** Stream from a growing temp file — response starts immediately (fixes Render 502). */
+function attachFileTailDownload(
+  output: PassThrough,
+  url: string,
+  formatId: string,
+  merge: boolean
+): void {
+  void (async () => {
+    const binaryPath = await ensureBinary();
+    const tmpPath = path.join(os.tmpdir(), `ytdlp-${randomUUID()}.mp4`);
+    const args = buildDownloadArgs(url, formatId, merge, tmpPath);
+
+    let stderr = "";
+    let offset = 0;
+    let poll: ReturnType<typeof setInterval> | null = null;
+    let proc: ChildProcessWithoutNullStreams | null = null;
+
+    const cleanup = () => {
+      if (poll) clearInterval(poll);
+      fs.unlink(tmpPath, () => {});
+    };
+
+    const pump = () => {
+      if (!fs.existsSync(tmpPath)) return;
+      let size = 0;
+      try {
+        size = fs.statSync(tmpPath).size;
+      } catch {
+        return;
+      }
+
+      if (size > offset) {
+        const chunk = fs.createReadStream(tmpPath, { start: offset, end: size - 1 });
+        offset = size;
+        chunk.on("data", (data) => output.write(data));
+        chunk.on("error", (err) => {
+          cleanup();
+          proc?.kill();
+          output.destroy(err);
+        });
+      }
+
+      if (proc?.exitCode !== null && offset >= size) {
+        cleanup();
+        output.end();
+      }
+    };
+
+    proc = spawn(binaryPath, args, { env: ytdlpEnv() });
+    proc.stderr.on("data", (d) => {
+      stderr += d.toString();
+    });
+    proc.on("error", (err) => {
+      cleanup();
+      output.destroy(err);
+    });
+    proc.on("close", (code) => {
+      if (code !== 0) {
+        cleanup();
+        const msg = stderr.split("\n").find((l) => l.includes("ERROR:")) ?? ar.downloadFailed;
+        output.destroy(new Error(msg));
+        return;
+      }
+      pump();
+    });
+
+    try {
+      await waitForFileData(tmpPath, 90_000);
+      poll = setInterval(pump, 200);
+      pump();
+    } catch (err) {
+      proc.kill();
+      cleanup();
+      output.destroy(err instanceof Error ? err : new Error(ar.downloadFailed));
+    }
+  })();
+}
+
+function attachStdoutDownload(output: PassThrough, url: string, formatId: string, merge: boolean): void {
+  void (async () => {
+    try {
+      const ytdlp = await getYtdlp();
+      const formatSpec = buildFormatSpec(formatId, merge);
+      const doMerge = needsMerge(formatId, merge);
+      const args = [...getDownloadArgsForUrl(url)];
+      if (doMerge) args.push("--merge-output-format", "mp4");
+      args.push("-f", formatSpec, url);
+      const src = ytdlp.execStream(args, { env: ytdlpEnv() });
+      src.on("data", (chunk) => output.write(chunk));
+      src.on("end", () => output.end());
+      src.on("error", (err) => output.destroy(err));
+    } catch (err) {
+      output.destroy(err instanceof Error ? err : new Error(ar.downloadFailed));
+    }
+  })();
+}
+
+export async function downloadToTempFile(
+  url: string,
+  formatId: string,
+  merge = false
+): Promise<string> {
+  const binaryPath = await ensureBinary();
+  const tmpPath = path.join(os.tmpdir(), `ytdlp-${randomUUID()}.mp4`);
+  const args = buildDownloadArgs(url, formatId, merge, tmpPath);
+  await new Promise<void>((resolve, reject) => {
+    const proc = spawn(binaryPath, args, { env: ytdlpEnv() });
+    let stderr = "";
+    proc.stderr.on("data", (d) => {
+      stderr += d.toString();
+    });
+    proc.on("error", reject);
+    proc.on("close", (code) => {
+      if (code === 0) resolve();
+      else {
+        const msg = stderr.split("\n").find((l) => l.includes("ERROR:")) ?? ar.downloadFailed;
+        fs.unlink(tmpPath, () => {});
+        reject(new Error(msg));
+      }
+    });
+  });
+  return tmpPath;
+}
+
+export function createDownloadStream(url: string, formatId: string, merge = false): Readable {
+  const output = new PassThrough();
+  if (useFileDownload()) {
+    attachFileTailDownload(output, url, formatId, merge);
+  } else {
+    attachStdoutDownload(output, url, formatId, merge);
+  }
+  return output;
 }
 
 const STREAM_MIME: Record<string, string> = {

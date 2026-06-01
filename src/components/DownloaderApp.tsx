@@ -13,6 +13,7 @@ import {
   findFormat,
   formatsForType,
 } from "@/lib/media-helpers";
+import { isYoutubePresetFormatId } from "@/lib/youtube-formats";
 import type { ApiResponse, MediaInfo, MediaType } from "@/lib/types";
 import { TopBar } from "./TopBar";
 import { HeroSection } from "./HeroSection";
@@ -31,6 +32,7 @@ export function DownloaderApp() {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [preparingDownload, setPreparingDownload] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgressState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<MediaInfo | null>(null);
@@ -125,12 +127,58 @@ export function DownloaderApp() {
     downloadAbortRef.current = abort;
 
     setDownloading(true);
+    setPreparingDownload(false);
     setError(null);
     setDownloadProgress({ loaded: 0, total: format.filesize ?? null, percent: 0 });
 
     try {
-      const params = buildDownloadParams(info, format, selectedFormatId, mediaType);
-      const blob = await downloadWithProgress(`/api/download?${params}`, {
+      const isYoutube =
+        /youtube|يوتيوب/i.test(info.platform) && mediaType !== "image" && !format.directUrl;
+
+      let downloadUrl: string;
+
+      if (isYoutube) {
+        setPreparingDownload(true);
+        const merge =
+          mediaType === "video" &&
+          (isYoutubePresetFormatId(selectedFormatId) ||
+            !format.hasAudio ||
+            selectedFormatId.includes("+"));
+
+        const prepRes = await fetch("/api/download/prepare", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: info.webpageUrl,
+            formatId: selectedFormatId,
+            title: info.title,
+            ext: format.ext,
+            merge,
+          }),
+          signal: abort.signal,
+        });
+        const prepData = (await prepRes.json()) as {
+          success?: boolean;
+          token?: string;
+          error?: string;
+        };
+        setPreparingDownload(false);
+
+        if (!prepRes.ok || !prepData.success || !prepData.token) {
+          throw new Error(prepData.error ?? ar.downloadFailed);
+        }
+
+        const tokenParams = new URLSearchParams({
+          token: prepData.token,
+          title: info.title,
+          ext: format.ext,
+        });
+        downloadUrl = `/api/download?${tokenParams}`;
+      } else {
+        downloadUrl = `/api/download?${buildDownloadParams(info, format, selectedFormatId, mediaType)}`;
+      }
+
+      const blob = await downloadWithProgress(downloadUrl, {
         expectedSize: format.filesize,
         signal: abort.signal,
         onProgress: setDownloadProgress,
@@ -153,6 +201,7 @@ export function DownloaderApp() {
     } finally {
       if (downloadAbortRef.current === abort) downloadAbortRef.current = null;
       setDownloading(false);
+      setPreparingDownload(false);
       setDownloadProgress(null);
     }
   }, [info, selectedFormatId, mediaType]);
@@ -219,6 +268,7 @@ export function DownloaderApp() {
             onDownload={handleDownload}
             onCancelDownload={handleCancelDownload}
             downloading={downloading}
+            preparingDownload={preparingDownload}
             downloadProgress={downloadProgress}
             downloadLabel={downloadLabel}
             error={error}

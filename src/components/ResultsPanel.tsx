@@ -19,6 +19,7 @@ interface ResultsPanelProps {
   onDownload: () => void;
   onCancelDownload: () => void;
   downloading: boolean;
+  preparingDownload?: boolean;
   downloadProgress: DownloadProgressState | null;
   downloadLabel: string;
   error: string | null;
@@ -35,6 +36,7 @@ export function ResultsPanel({
   onDownload,
   onCancelDownload,
   downloading,
+  preparingDownload = false,
   downloadProgress,
   downloadLabel,
   error,
@@ -78,7 +80,11 @@ export function ResultsPanel({
       <div className="shrink-0 border-t border-[var(--border)] bg-[var(--white)] px-5 py-4">
         <div className="mx-auto max-w-[520px] space-y-3">
           {downloading && downloadProgress && (
-            <DownloadProgress progress={downloadProgress} onCancel={onCancelDownload} />
+            <DownloadProgress
+              progress={downloadProgress}
+              onCancel={onCancelDownload}
+              statusLabel={preparingDownload ? ar.preparingDownload : undefined}
+            />
           )}
           <DownloadButton
             onClick={onDownload}

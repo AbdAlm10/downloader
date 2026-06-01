@@ -6,15 +6,18 @@ import { mimeForImageExt } from "@/lib/mime";
 import { nodeStreamToWeb } from "@/lib/stream";
 import { isDirectImageUrl } from "@/lib/image-url";
 import { assertPublicHttpUrl } from "@/lib/security/url";
+import { consumeDownloadSession } from "@/lib/download-session";
 import { createDownloadStream, fetchDirectUrl, mimeForMediaExt } from "@/lib/ytdlp";
 import { downloadQuerySchema, sanitizeFilename } from "@/lib/validate";
+import { createReadStream, statSync, unlink } from "fs";
 
 export const maxDuration = 300;
 export const dynamic = "force-dynamic";
 
 const DOWNLOAD_HEADERS = {
-  "Cache-Control": "no-store",
+  "Cache-Control": "no-store, no-transform",
   "X-Content-Type-Options": "nosniff",
+  "X-Accel-Buffering": "no",
 } as const;
 
 export async function GET(request: NextRequest) {
@@ -29,11 +32,37 @@ export async function GET(request: NextRequest) {
     return jsonError(parsed.error.issues[0]?.message ?? ar.invalidParams, 400);
   }
 
-  const { url, formatId, directUrl, title, ext, merge } = parsed.data;
+  const { token, url, formatId, directUrl, title, ext, merge } = parsed.data;
   const filename = `${sanitizeFilename(title ?? ar.defaultFilename)}.${ext ?? "mp4"}`;
   const disposition = `attachment; filename="${encodeURIComponent(filename)}"`;
 
   try {
+    if (token) {
+      const session = consumeDownloadSession(token);
+      if (!session) {
+        return jsonError(ar.downloadExpired, 410);
+      }
+
+      const stat = statSync(session.tmpPath);
+      const stream = createReadStream(session.tmpPath);
+      stream.on("close", () => unlink(session.tmpPath, () => {}));
+
+      const sessionFilename = `${sanitizeFilename(session.title)}.${session.ext}`;
+      const mediaMime = mimeForMediaExt(session.ext, "application/octet-stream");
+      return new NextResponse(nodeStreamToWeb(stream), {
+        headers: {
+          ...DOWNLOAD_HEADERS,
+          "Content-Type": mediaMime,
+          "Content-Disposition": `attachment; filename="${encodeURIComponent(sessionFilename)}"`,
+          "Content-Length": String(stat.size),
+        },
+      });
+    }
+
+    if (!formatId) {
+      return jsonError(ar.formatIdInvalid, 400);
+    }
+
     if (directUrl || formatId.startsWith("img-") || formatId.startsWith("inv-")) {
       const streamUrl = directUrl ?? "";
       if (!streamUrl) {
@@ -66,7 +95,7 @@ export async function GET(request: NextRequest) {
       return jsonError(ar.missingMediaUrl, 400);
     }
 
-    const nodeStream = await createDownloadStream(url, formatId, merge === "true");
+    const nodeStream = createDownloadStream(url, formatId, merge === "true");
     const mediaMime = mimeForMediaExt(ext ?? "mp4", "application/octet-stream");
 
     return new NextResponse(nodeStreamToWeb(nodeStream), {

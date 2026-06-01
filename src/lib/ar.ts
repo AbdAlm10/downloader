@@ -19,6 +19,8 @@ export const ar = {
   downloadAudio: "تحميل الصوت",
   downloadImage: "تحميل الصورة",
   downloadingProgress: "جاري التحميل",
+  preparingDownload: "جاري تجهيز التحميل…",
+  downloadExpired: "انتهت صلاحية التحميل — اضغط تحميل مرة أخرى",
   cancelDownload: "إلغاء التحميل",
   downloadCancelled: "تم إلغاء التحميل",
   githubStar: "أعطِ المشروع نجمة على GitHub",

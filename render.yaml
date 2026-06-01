@@ -26,3 +26,5 @@ services:
         value: "true"
       - key: YTDLP_AUTO_UPDATE
         value: "false"
+      - key: YTDLP_USE_FILE_DOWNLOAD
+        value: "true"

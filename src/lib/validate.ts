@@ -38,20 +38,35 @@ export const infoBodySchema = z.object({
   url: urlSchema,
 });
 
+export const downloadPrepareSchema = z.object({
+  url: urlSchema,
+  formatId: z
+    .string()
+    .min(1)
+    .max(64)
+    .refine(isAllowedFormatId, ar.formatIdInvalid),
+  title: z.string().max(200).optional(),
+  ext: extSchema,
+  merge: z.boolean().optional(),
+});
+
 export const downloadQuerySchema = z
   .object({
+    token: z.string().uuid({ message: ar.invalidParams }).optional(),
     url: urlSchema.optional(),
     formatId: z
       .string()
       .min(1)
       .max(64)
-      .refine(isAllowedFormatId, ar.formatIdInvalid),
+      .refine(isAllowedFormatId, ar.formatIdInvalid)
+      .optional(),
     directUrl: urlSchema.optional(),
     title: z.string().max(200).optional(),
     ext: extSchema,
     merge: z.enum(["true", "false"]).optional(),
   })
-  .refine((d) => d.directUrl || d.url, { message: ar.urlOrDirectRequired });
+  .refine((d) => d.token || d.directUrl || d.url, { message: ar.urlOrDirectRequired })
+  .refine((d) => d.token || d.formatId, { message: ar.formatIdInvalid });
 
 export function sanitizeFilename(name: string): string {
   return (
