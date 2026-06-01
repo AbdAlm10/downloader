@@ -25,7 +25,9 @@ const INFO_ARGS = [
   "--retries",
   "3",
   "--socket-timeout",
-  "30",
+  "60",
+  "--extractor-args",
+  "youtube:player_client=android,web",
 ];
 
 let ytdlpInstance: YTDlpWrap | null = null;

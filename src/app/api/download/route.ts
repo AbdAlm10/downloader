@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ar } from "@/lib/ar";
 import { guardRequest } from "@/lib/api/guard";
-import { jsonError, safeServerMessage } from "@/lib/api/responses";
+import { apiErrorMessage, jsonError } from "@/lib/api/responses";
 import { mimeForImageExt } from "@/lib/mime";
 import { nodeStreamToWeb } from "@/lib/stream";
 import { assertPublicHttpUrl } from "@/lib/security/url";
@@ -66,7 +66,6 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (err) {
-    const message = safeServerMessage(err, ar.downloadFailed);
-    return jsonError(message, 500);
+    return jsonError(apiErrorMessage(err, ar.downloadFailed), 500);
   }
 }

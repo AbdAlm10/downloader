@@ -20,6 +20,14 @@ export function safeServerMessage(err: unknown, fallback: string): string {
   return fallback;
 }
 
+/** أخطاء yt-dlp المُصفّاة — آمنة للعرض في الواجهة */
+export function apiErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.message && err.message !== fallback) {
+    return err.message.length > 320 ? err.message.slice(0, 320) + "…" : err.message;
+  }
+  return safeServerMessage(err, fallback);
+}
+
 export function rateLimitedResponse(retryAfterSec: number) {
   return NextResponse.json(
     { success: false, error: ar.rateLimited },

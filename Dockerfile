@@ -1,13 +1,15 @@
 FROM node:20-bookworm-slim
 
-# yt-dlp من مستودع Debian — أسرع وأخف من pip (أنسب لـ Railway و Render)
+# حزمة apt قديمة جداً (2023) — YouTube يفشل. نثبت أحدث yt-dlp عبر pip.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ffmpeg \
     ca-certificates \
-    yt-dlp \
+    python3 \
+    python3-pip \
+  && pip3 install --break-system-packages --no-cache-dir -U "yt-dlp[default]" \
   && rm -rf /var/lib/apt/lists/* \
-  && yt-dlp --version
+  && /usr/local/bin/yt-dlp --version
 
 WORKDIR /app
 
@@ -17,7 +19,7 @@ RUN npm ci
 COPY . .
 RUN npm run build
 
-ENV YTDLP_PATH=/usr/bin/yt-dlp
+ENV YTDLP_PATH=/usr/local/bin/yt-dlp
 RUN mkdir -p .bin && ln -sf "${YTDLP_PATH}" .bin/yt-dlp
 
 ENV NODE_ENV=production

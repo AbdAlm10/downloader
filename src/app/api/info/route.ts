@@ -1,6 +1,6 @@
 import { ar } from "@/lib/ar";
 import { guardRequest, parseJsonBody } from "@/lib/api/guard";
-import { jsonApiError, safeServerMessage } from "@/lib/api/responses";
+import { apiErrorMessage, jsonApiError } from "@/lib/api/responses";
 import { fetchMediaInfo } from "@/lib/ytdlp";
 import { infoBodySchema } from "@/lib/validate";
 import { formatDuration } from "@/lib/utils";
@@ -37,10 +37,9 @@ export async function POST(request: Request) {
 
     return Response.json({ success: true, data });
   } catch (err) {
-    const message =
-      err instanceof Error && err.message === ar.requestTooLarge
-        ? ar.requestTooLarge
-        : safeServerMessage(err, ar.fetchFailed);
-    return jsonApiError(message, 500);
+    if (err instanceof Error && err.message === ar.requestTooLarge) {
+      return jsonApiError(ar.requestTooLarge, 413);
+    }
+    return jsonApiError(apiErrorMessage(err, ar.fetchFailed), 500);
   }
 }

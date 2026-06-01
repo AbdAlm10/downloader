@@ -1,0 +1,3 @@
+# تأكد أن Render يستخدم Docker وليس Node الأصلي
+[service]
+dockerfilePath = "./Dockerfile"
