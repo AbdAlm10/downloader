@@ -89,6 +89,7 @@ export function DownloaderApp() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: trimmed }),
+        signal: AbortSignal.timeout(50_000),
       });
       const data: ApiResponse = await res.json();
 
@@ -102,7 +103,11 @@ export function DownloaderApp() {
       setMediaType(type);
       setSelectedFormatId(formatsForType(data.data, type)[0]?.id ?? null);
     } catch (err) {
-      setError(ar.networkError);
+      if (err instanceof Error && err.name === "TimeoutError") {
+        setError(ar.fetchTimeout);
+      } else {
+        setError(ar.networkError);
+      }
       captureClientError(err);
     } finally {
       setLoading(false);

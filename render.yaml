@@ -24,3 +24,5 @@ services:
         value: /usr/local/bin/deno
       - key: DEPLOY_VERBOSE_ERRORS
         value: "true"
+      - key: YTDLP_AUTO_UPDATE
+        value: "false"

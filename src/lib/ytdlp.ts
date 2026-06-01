@@ -7,10 +7,13 @@ import { ar } from "./ar";
 import { parseMediaInfo, type RawInfo } from "./formats";
 import { resolveMediaUrl } from "./resolve-media-url";
 import { assertPublicHttpUrl } from "./security/url";
-import { fetchYouTubeViaInvidious } from "./youtube-fallback";
 
 const execFileAsync = promisify(execFile);
 const BIN_DIR = path.join(process.cwd(), ".bin");
+
+const YOUTUBE_INFO_TIMEOUT_MS = 28_000;
+const OTHER_INFO_TIMEOUT_MS = 35_000;
+const FETCH_MEDIA_TIMEOUT_MS = 40_000;
 
 const BASE_INFO_FLAGS = [
   "-J",
@@ -18,7 +21,7 @@ const BASE_INFO_FLAGS = [
   "--no-warnings",
   "--ignore-no-formats-error",
   "--retries",
-  "3",
+  "1",
 ] as const;
 
 function getConfigPath(): string | null {
@@ -100,39 +103,42 @@ function getCookieArgs(): string[] {
   return [];
 }
 
-function getYouTubeStrategies(): string[][] {
-  const js = getJsRuntimeArgs();
-  const cookies = getCookieArgs();
-
-  const withCookies = (extra: string[]) => [...cookies, ...extra];
-
+/** One fast YouTube profile (config + JS + player clients). */
+function getYouTubePrimaryArgs(): string[] {
   return [
-    withCookies([]),
-    withCookies([...js]),
-    withCookies([...js, "--remote-components", "ejs:github"]),
-    withCookies([...js, "--remote-components", "ejs:npm"]),
-    withCookies(["--extractor-args", "youtube:player_client=web,mweb,android"]),
-    withCookies(["--extractor-args", "youtube:player_client=tv_embedded,web"]),
-    withCookies(["--extractor-args", "youtube:player_client=android_vr,web"]),
-    withCookies(["--extractor-args", "youtube:player_client=android_vr"]),
-    withCookies(["--extractor-args", "youtube:player_client=mweb"]),
+    ...getCookieArgs(),
+    ...getJsRuntimeArgs(),
+    "--extractor-args",
+    "youtube:player_client=web,mweb,android",
+  ];
+}
+
+/** Second attempt only when the first hits JS / challenge errors. */
+function getYouTubeFallbackArgs(): string[] {
+  return [
+    ...getCookieArgs(),
+    ...getJsRuntimeArgs(),
+    "--remote-components",
+    "ejs:github",
+    "--extractor-args",
+    "youtube:player_client=android_vr,web",
   ];
 }
 
 function getInfoArgsForUrl(url: string): string[] {
+  const isYt = isYouTubeUrl(url);
   return [
     ...getConfigArgs(),
     ...BASE_INFO_FLAGS,
     "--socket-timeout",
-    /facebook|instagram|tiktok/i.test(url) ? "40" : isYouTubeUrl(url) ? "90" : "25",
+    isYt ? "20" : /facebook|instagram|tiktok/i.test(url) ? "30" : "20",
   ];
 }
 
 function getDownloadArgsForUrl(url: string): string[] {
   const args = [...getConfigArgs(), ...getCookieArgs(), "--no-playlist", "--no-warnings"];
   if (isYouTubeUrl(url)) {
-    args.push(...getJsRuntimeArgs(), "--remote-components", "ejs:github");
-    args.push("--extractor-args", "youtube:player_client=web,mweb,android");
+    args.push(...getYouTubePrimaryArgs());
   }
   return args;
 }
@@ -150,23 +156,16 @@ function ytdlpEnv(): NodeJS.ProcessEnv {
 
 let ytdlpInstance: YTDlpWrap | null = null;
 let initPromise: Promise<YTDlpWrap> | null = null;
-let updatePromise: Promise<void> | null = null;
 
-async function maybeUpdateBinary(binPath: string): Promise<void> {
+function scheduleBackgroundBinaryUpdate(binPath: string): void {
   if (process.env.YTDLP_AUTO_UPDATE === "false") return;
   if (process.platform === "win32") return;
   if (process.env.YTDLP_PATH?.trim()) return;
 
-  if (!updatePromise) {
-    updatePromise = execFileAsync(binPath, ["--update-to", "stable"], {
-      timeout: 90_000,
-      env: ytdlpEnv(),
-    })
-      .then(() => undefined)
-      .catch(() => undefined);
-  }
-
-  await updatePromise;
+  void execFileAsync(binPath, ["--update-to", "stable"], {
+    timeout: 120_000,
+    env: ytdlpEnv(),
+  }).catch(() => undefined);
 }
 
 async function ensureBinary(): Promise<string> {
@@ -178,7 +177,7 @@ async function ensureBinary(): Promise<string> {
     } catch {
       fs.chmodSync(binPath, 0o755);
     }
-    await maybeUpdateBinary(binPath);
+    scheduleBackgroundBinaryUpdate(binPath);
     return binPath;
   }
 
@@ -206,14 +205,26 @@ export async function getYtdlp(): Promise<YTDlpWrap> {
   return initPromise;
 }
 
-async function runYtdlp(args: string[]): Promise<{ stdout: string; stderr: string }> {
+/** Preload binary at server start so the first «تحليل» is not blocked by download/update. */
+export function warmYtdlp(): Promise<void> {
+  return getYtdlp().then(() => undefined);
+}
+
+async function runYtdlp(args: string[], timeoutMs: number): Promise<{ stdout: string; stderr: string }> {
   const binaryPath = await ensureBinary();
+
+  const execPromise = execFileAsync(binaryPath, args, {
+    maxBuffer: 64 * 1024 * 1024,
+    env: ytdlpEnv(),
+  });
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(ar.fetchTimeout)), timeoutMs);
+  });
+
   try {
-    const { stdout, stderr } = await execFileAsync(binaryPath, args, {
-      maxBuffer: 64 * 1024 * 1024,
-      env: ytdlpEnv(),
-      timeout: 120_000,
-    });
+    const { stdout, stderr } = await Promise.race([execPromise, timeoutPromise]);
     return { stdout, stderr: stderr ?? "" };
   } catch (err: unknown) {
     const execErr = err as { stdout?: string; stderr?: string; message?: string };
@@ -223,6 +234,8 @@ async function runYtdlp(args: string[]): Promise<{ stdout: string; stderr: strin
       stdout: execErr.stdout ?? "",
     });
     throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -246,40 +259,62 @@ function parseRaw(stdout: string): RawInfo | null {
   }
 }
 
-async function fetchRawInfo(url: string): Promise<RawInfo> {
-  const base = [...getInfoArgsForUrl(url)];
+function isYouTubeRetryableError(err: unknown): boolean {
+  const stderr =
+    err && typeof err === "object" && "stderr" in err && typeof err.stderr === "string"
+      ? err.stderr
+      : "";
+  const msg = err instanceof Error ? err.message : "";
+  const combined = `${msg}\n${stderr}`;
+  return /JavaScript runtime|js-runtimes|challenge solver|ejs:|n challenge solving/i.test(
+    combined
+  );
+}
 
-  if (!isYouTubeUrl(url)) {
-    const { stdout } = await runYtdlp([...base, url]);
+async function fetchRawInfoYouTube(url: string, base: string[]): Promise<RawInfo> {
+  const timeout = YOUTUBE_INFO_TIMEOUT_MS;
+
+  const tryOnce = async (extra: string[]) => {
+    const { stdout } = await runYtdlp([...base, ...extra, url], timeout);
     const raw = parseRaw(stdout);
     if (!raw) throw new Error(ar.fetchFailed);
     return raw;
+  };
+
+  try {
+    const raw = await tryOnce(getYouTubePrimaryArgs());
+    if (rawHasStreamFormats(raw)) return raw;
+    if (raw.title) return raw;
+  } catch (err) {
+    if (!isYouTubeRetryableError(err)) throw err;
   }
 
-  let lastError: unknown = null;
-  let lastRaw: RawInfo | null = null;
+  const raw = await tryOnce(getYouTubeFallbackArgs());
+  if (!rawHasStreamFormats(raw) && !raw.title) {
+    throw new Error(ar.youtubeEngineMissing);
+  }
+  return raw;
+}
 
-  for (const extra of getYouTubeStrategies()) {
-    try {
-      const { stdout } = await runYtdlp([...base, ...extra, url]);
-      const raw = parseRaw(stdout);
-      if (!raw) continue;
-      lastRaw = raw;
-      if (rawHasStreamFormats(raw)) return raw;
-    } catch (err) {
-      lastError = err;
-    }
+async function fetchRawInfo(url: string): Promise<RawInfo> {
+  const base = [...getInfoArgsForUrl(url)];
+
+  if (isYouTubeUrl(url)) {
+    return fetchRawInfoYouTube(url, base);
   }
 
-  if (lastRaw && lastRaw.title) return lastRaw;
-  if (lastError) throw lastError;
-  throw new Error(ar.youtubeEngineMissing);
+  const { stdout } = await runYtdlp([...base, url], OTHER_INFO_TIMEOUT_MS);
+  const raw = parseRaw(stdout);
+  if (!raw) throw new Error(ar.fetchFailed);
+  return raw;
 }
 
 function extractYtdlpError(err: unknown): string {
   if (!(err instanceof Error)) return ar.fetchFailed;
 
-  if (err.message === ar.youtubeEngineMissing) return err.message;
+  if (err.message === ar.youtubeEngineMissing || err.message === ar.fetchTimeout) {
+    return err.message;
+  }
 
   let msg = err.message;
   const stderr =
@@ -334,32 +369,11 @@ export async function fetchMediaInfo(url: string) {
   const resolvedUrl = await resolveMediaUrl(url);
 
   try {
-    const raw = await withTimeout(fetchRawInfo(resolvedUrl), 110_000, ar.fetchTimeout);
-    const info = parseMediaInfo(raw, resolvedUrl);
-    if (
-      info.videoFormats.length > 0 ||
-      info.audioFormats.length > 0 ||
-      info.imageFormats.length > 0
-    ) {
-      return info;
-    }
+    const raw = await withTimeout(fetchRawInfo(resolvedUrl), FETCH_MEDIA_TIMEOUT_MS, ar.fetchTimeout);
+    return parseMediaInfo(raw, resolvedUrl);
   } catch (err) {
-    if (!isYouTubeUrl(resolvedUrl)) {
-      throw new Error(extractYtdlpError(err));
-    }
+    throw new Error(extractYtdlpError(err));
   }
-
-  if (isYouTubeUrl(resolvedUrl)) {
-    const fallback = await fetchYouTubeViaInvidious(resolvedUrl);
-    if (
-      fallback &&
-      (fallback.videoFormats.length > 0 || fallback.audioFormats.length > 0)
-    ) {
-      return fallback;
-    }
-  }
-
-  throw new Error(ar.youtubeEngineMissing);
 }
 
 function buildFormatSpec(formatId: string, merge: boolean): string {
