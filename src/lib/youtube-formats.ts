@@ -4,16 +4,19 @@ import { ar } from "./ar";
 
 type ParsedMediaInfo = ReturnType<typeof parseMediaInfo>;
 
-/** Short IDs for the API; mapped to yt-dlp format selectors on download. */
+/**
+ * Pre-muxed / single-file selectors — no ffmpeg merge step (reliable on Render).
+ * yt-dlp format IDs for merge-heavy paths are mapped separately on download.
+ */
 export const YT_FORMAT_SPECS: Record<string, string> = {
-  "yt-v-best": "bestvideo*+bestaudio/best",
-  "yt-v-1080": "bestvideo*[height<=1080]+bestaudio/best",
-  "yt-v-720": "bestvideo*[height<=720]+bestaudio/best",
-  "yt-v-480": "bestvideo*[height<=480]+bestaudio/best",
-  "yt-v-360": "best",
-  "yt-a-best": "bestaudio/best",
-  "yt-a-m4a": "bestaudio[ext=m4a]/best",
-  "yt-a-opus": "bestaudio[ext=opus]/best",
+  "yt-v-best": "best[ext=mp4]/best[ext=mp4]/best",
+  "yt-v-1080": "best[height<=1080][ext=mp4]/best[height<=1080]/best",
+  "yt-v-720": "best[height<=720][ext=mp4]/best[height<=720]/best",
+  "yt-v-480": "best[height<=480][ext=mp4]/best[height<=480]/best",
+  "yt-v-360": "best[height<=360][ext=mp4]/best[height<=360]/best",
+  "yt-a-best": "bestaudio[ext=m4a]/bestaudio/best",
+  "yt-a-m4a": "bestaudio[ext=m4a]/bestaudio/best",
+  "yt-a-opus": "bestaudio[ext=opus]/bestaudio/best",
 };
 
 export function resolveYoutubeFormatSpec(formatId: string): string | null {
@@ -24,7 +27,6 @@ export function isYoutubePresetFormatId(formatId: string): boolean {
   return formatId in YT_FORMAT_SPECS;
 }
 
-/** yt-dlp format selectors — work even when -J returns no format list (server partial extract). */
 export const YOUTUBE_VIDEO_PRESETS: FormatOption[] = [
   {
     id: "yt-v-best",
@@ -33,7 +35,7 @@ export const YOUTUBE_VIDEO_PRESETS: FormatOption[] = [
     quality: ar.bestQuality,
     filesizeLabel: "",
     hasVideo: true,
-    hasAudio: false,
+    hasAudio: true,
   },
   {
     id: "yt-v-1080",
@@ -42,7 +44,7 @@ export const YOUTUBE_VIDEO_PRESETS: FormatOption[] = [
     quality: "1080p",
     filesizeLabel: "",
     hasVideo: true,
-    hasAudio: false,
+    hasAudio: true,
   },
   {
     id: "yt-v-720",
@@ -51,7 +53,7 @@ export const YOUTUBE_VIDEO_PRESETS: FormatOption[] = [
     quality: "720p",
     filesizeLabel: "",
     hasVideo: true,
-    hasAudio: false,
+    hasAudio: true,
   },
   {
     id: "yt-v-480",
@@ -60,11 +62,11 @@ export const YOUTUBE_VIDEO_PRESETS: FormatOption[] = [
     quality: "480p",
     filesizeLabel: "",
     hasVideo: true,
-    hasAudio: false,
+    hasAudio: true,
   },
   {
     id: "yt-v-360",
-    label: "360p " + ar.orLower,
+    label: "360p",
     ext: "mp4",
     quality: "360p",
     filesizeLabel: "",

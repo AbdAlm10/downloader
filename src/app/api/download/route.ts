@@ -67,11 +67,12 @@ export async function GET(request: NextRequest) {
     }
 
     const nodeStream = await createDownloadStream(url, formatId, merge === "true");
+    const mediaMime = mimeForMediaExt(ext ?? "mp4", "application/octet-stream");
 
     return new NextResponse(nodeStreamToWeb(nodeStream), {
       headers: {
         ...DOWNLOAD_HEADERS,
-        "Content-Type": "application/octet-stream",
+        "Content-Type": mediaMime,
         "Content-Disposition": disposition,
       },
     });

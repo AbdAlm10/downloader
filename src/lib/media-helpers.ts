@@ -46,10 +46,8 @@ export function buildDownloadParams(
     params.set("url", info.webpageUrl);
     const needsMerge =
       mediaType === "video" &&
-      (isYoutubePresetFormatId(formatId) ||
-        !format.hasAudio ||
-        formatId.includes("+") ||
-        formatId.includes("/"));
+      !isYoutubePresetFormatId(formatId) &&
+      (!format.hasAudio || formatId.includes("+"));
     if (needsMerge) {
       params.set("merge", "true");
     }

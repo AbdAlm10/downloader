@@ -404,7 +404,8 @@ function buildFormatSpec(formatId: string, merge: boolean): string {
 }
 
 function needsMerge(formatId: string, mergeFlag: boolean): boolean {
-  const spec = resolveYoutubeFormatSpec(formatId) ?? formatId;
+  if (resolveYoutubeFormatSpec(formatId)) return false;
+  const spec = formatId;
   return mergeFlag || spec.includes("+");
 }
 
@@ -412,11 +413,10 @@ export async function createDownloadStream(url: string, formatId: string, merge 
   const ytdlp = await getYtdlp();
   const formatSpec = buildFormatSpec(formatId, merge);
   const doMerge = needsMerge(formatId, merge);
-  const args = [...getDownloadArgsForUrl(url), "-f", formatSpec, url, "-o", "-"];
-
-  if (doMerge) {
-    args.splice(args.length - 2, 0, "--merge-output-format", "mp4");
-  }
+  // execStream() always appends "-o -" — do not pass it here (duplicate breaks downloads).
+  const args = [...getDownloadArgsForUrl(url)];
+  if (doMerge) args.push("--merge-output-format", "mp4");
+  args.push("-f", formatSpec, url);
 
   return ytdlp.execStream(args, { env: ytdlpEnv() });
 }
