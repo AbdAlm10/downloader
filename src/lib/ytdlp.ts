@@ -23,10 +23,18 @@ let ytdlpInstance: YTDlpWrap | null = null;
 let initPromise: Promise<YTDlpWrap> | null = null;
 
 async function ensureBinary(): Promise<string> {
-  if (fs.existsSync(BIN_PATH)) return BIN_PATH;
+  if (fs.existsSync(BIN_PATH)) {
+    try {
+      fs.accessSync(BIN_PATH, fs.constants.X_OK);
+    } catch {
+      fs.chmodSync(BIN_PATH, 0o755);
+    }
+    return BIN_PATH;
+  }
 
   fs.mkdirSync(BIN_DIR, { recursive: true });
   await YTDlpWrap.downloadFromGithub(BIN_PATH, undefined, process.platform);
+  fs.chmodSync(BIN_PATH, 0o755);
   return BIN_PATH;
 }
 
@@ -122,11 +130,16 @@ export async function fetchDirectUrl(sourceUrl: string): Promise<{
   return { body, contentType };
 }
 
-export async function checkYtdlpReady(): Promise<{ ready: boolean }> {
+export async function checkYtdlpReady(): Promise<{
+  ready: boolean;
+  version?: string;
+  binaryExists?: boolean;
+}> {
   try {
-    await getYtdlp();
-    return { ready: true };
+    const ytdlp = await getYtdlp();
+    const version = await ytdlp.getVersion();
+    return { ready: true, version: version?.trim(), binaryExists: fs.existsSync(BIN_PATH) };
   } catch {
-    return { ready: false };
+    return { ready: false, binaryExists: fs.existsSync(BIN_PATH) };
   }
 }

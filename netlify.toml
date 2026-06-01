@@ -1,12 +1,8 @@
-# المنزل يحتاج Node + yt-dlp + ffmpeg — لا يعمل التحليل/التحميل على استضافة Netlify الثابتة.
-# انشر التطبيق الكامل على Railway (رئيسي) ثم ضع رابطه هنا:
-#
-# 1. Railway → Deploy → انسخ الرابط مثل https://almonzel-production.up.railway.app
-# 2. استبدل الرابط أدناه
-# 3. أعد نشر Netlify — الزوار على down-loader.netlify.app يُحوَّلون تلقائياً
+# Netlify = واجهة الدخول فقط — التحليل والتحميل يعملان على Render (Docker + yt-dlp).
+# عند إضافة Railway لاحقاً: غيّر الرابط أدناه إلى رابط Railway.
 
 [[redirects]]
   from = "/*"
-  to = "https://REPLACE_WITH_YOUR_RAILWAY_URL/:splat"
+  to = "https://almonzel.onrender.com/:splat"
   status = 302
   force = true

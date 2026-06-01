@@ -6,6 +6,7 @@ services:
     plan: free
     dockerfilePath: ./Dockerfile
     healthCheckPath: /api/health
+    healthCheckInitialDelaySeconds: 90
     envVars:
       - key: NODE_ENV
         value: production

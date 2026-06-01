@@ -7,6 +7,6 @@ export async function GET(request: Request) {
   const limited = guardRequest(request, "health");
   if (limited) return limited;
 
-  const { ready } = await checkYtdlpReady();
-  return Response.json({ ready });
+  const status = await checkYtdlpReady();
+  return Response.json(status);
 }

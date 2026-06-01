@@ -13,11 +13,11 @@
 
 بعد نشر Railway، افتح `netlify.toml` واستبدل:
 
-```toml
-to = "https://REPLACE_WITH_YOUR_RAILWAY_URL/:splat"
-```
+الملف `netlify.toml` يوجّه حالياً إلى:
 
-برابطك الحقيقي، ثم **أعد النشر على Netlify**.  
+`https://almonzel.onrender.com`
+
+بعد إضافة Railway، غيّر السطر في `netlify.toml` ثم **أعد النشر على Netlify**.  
 الزائر يفتح `down-loader.netlify.app` → يُوجَّه فوراً إلى Railway (يعمل التحليل والتحميل).
 
 ---

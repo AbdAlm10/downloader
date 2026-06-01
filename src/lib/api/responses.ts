@@ -10,7 +10,11 @@ export function jsonApiError(message: string, status: number) {
 }
 
 export function safeServerMessage(err: unknown, fallback: string): string {
-  if (process.env.NODE_ENV === "development" && err instanceof Error) {
+  const verbose =
+    process.env.NODE_ENV === "development" ||
+    process.env.DEPLOY_VERBOSE_ERRORS === "true";
+
+  if (verbose && err instanceof Error) {
     return err.message.length > 300 ? err.message.slice(0, 300) + "…" : err.message;
   }
   return fallback;
