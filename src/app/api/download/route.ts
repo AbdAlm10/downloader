@@ -6,7 +6,7 @@ import { mimeForImageExt } from "@/lib/mime";
 import { nodeStreamToWeb } from "@/lib/stream";
 import { isDirectImageUrl } from "@/lib/image-url";
 import { assertPublicHttpUrl } from "@/lib/security/url";
-import { createDownloadStream, fetchDirectUrl } from "@/lib/ytdlp";
+import { createDownloadStream, fetchDirectUrl, mimeForMediaExt } from "@/lib/ytdlp";
 import { downloadQuerySchema, sanitizeFilename } from "@/lib/validate";
 
 export const maxDuration = 300;
@@ -34,18 +34,24 @@ export async function GET(request: NextRequest) {
   const disposition = `attachment; filename="${encodeURIComponent(filename)}"`;
 
   try {
-    if (directUrl || formatId.startsWith("img-")) {
-      const imageUrl = directUrl ?? "";
-      if (!imageUrl) {
+    if (directUrl || formatId.startsWith("img-") || formatId.startsWith("inv-")) {
+      const streamUrl = directUrl ?? "";
+      if (!streamUrl) {
         return jsonError(ar.missingImageUrl, 400);
       }
 
-      assertPublicHttpUrl(imageUrl);
-      if (!isDirectImageUrl(imageUrl)) {
+      assertPublicHttpUrl(streamUrl);
+      const isImage =
+        formatId.startsWith("img-") ||
+        isDirectImageUrl(streamUrl) ||
+        /^(jpe?g|png|webp|gif|avif|bmp)$/i.test(ext ?? "");
+      if (!isImage && !formatId.startsWith("inv-")) {
         return jsonError(ar.notDirectImage, 400);
       }
-      const { body, contentType } = await fetchDirectUrl(imageUrl);
-      const mime = mimeForImageExt(ext ?? "jpg", contentType);
+      const { body, contentType } = await fetchDirectUrl(streamUrl);
+      const mime = isImage
+        ? mimeForImageExt(ext ?? "jpg", contentType)
+        : mimeForMediaExt(ext ?? "mp4", contentType);
 
       return new NextResponse(body, {
         headers: {

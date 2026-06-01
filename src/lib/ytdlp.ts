@@ -7,11 +7,10 @@ import { ar } from "./ar";
 import { parseMediaInfo, type RawInfo } from "./formats";
 import { resolveMediaUrl } from "./resolve-media-url";
 import { assertPublicHttpUrl } from "./security/url";
+import { fetchYouTubeViaInvidious } from "./youtube-fallback";
 
 const execFileAsync = promisify(execFile);
 const BIN_DIR = path.join(process.cwd(), ".bin");
-
-const YTDLP_CONFIG_PATH = "/etc/yt-dlp.conf";
 
 const BASE_INFO_FLAGS = [
   "-J",
@@ -19,8 +18,17 @@ const BASE_INFO_FLAGS = [
   "--no-warnings",
   "--ignore-no-formats-error",
   "--retries",
-  "2",
+  "3",
 ] as const;
+
+function getConfigPath(): string | null {
+  const fromEnv = process.env.YTDLP_CONFIG_PATH?.trim();
+  if (fromEnv && fs.existsSync(fromEnv)) return fromEnv;
+  if (fs.existsSync("/etc/yt-dlp.conf")) return "/etc/yt-dlp.conf";
+  const local = path.join(process.cwd(), "config", "yt-dlp.conf");
+  if (fs.existsSync(local)) return local;
+  return null;
+}
 
 export function getBinPath(): string {
   const fromEnv = process.env.YTDLP_PATH?.trim();
@@ -44,7 +52,8 @@ export function getYtdlpRuntimeStatus() {
   return {
     deno: resolveRuntimeBin("deno"),
     node: resolveRuntimeBin("node"),
-    config: fs.existsSync(YTDLP_CONFIG_PATH) ? YTDLP_CONFIG_PATH : null,
+    config: getConfigPath(),
+    binary: getBinPath(),
   };
 }
 
@@ -58,6 +67,7 @@ function resolveRuntimeBin(name: "deno" | "node"): string | null {
     process.env[envKey]?.trim(),
     name === "node" ? process.execPath : undefined,
     path.join("/usr/local/bin", name),
+    path.join(process.cwd(), ".bin", process.platform === "win32" ? `${name}.exe` : name),
   ].filter((p): p is string => Boolean(p?.trim()));
 
   for (const bin of candidates) {
@@ -77,33 +87,35 @@ function getJsRuntimeArgs(): string[] {
 }
 
 function getConfigArgs(): string[] {
-  if (fs.existsSync(YTDLP_CONFIG_PATH)) {
-    return ["--config-location", YTDLP_CONFIG_PATH];
+  const configPath = getConfigPath();
+  if (configPath) return ["--config-location", configPath];
+  return [];
+}
+
+function getCookieArgs(): string[] {
+  const cookiesFile = process.env.YTDLP_COOKIES_FILE?.trim();
+  if (cookiesFile && fs.existsSync(cookiesFile)) {
+    return ["--cookies", cookiesFile];
   }
   return [];
 }
 
-/** Pip installs on Windows/dev may need GitHub EJS fetch; official Linux binary bundles EJS */
-function getEjsArgs(): string[] {
-  if (fs.existsSync(YTDLP_CONFIG_PATH)) return [];
-  return ["--remote-components", "ejs:github"];
-}
-
 function getYouTubeStrategies(): string[][] {
   const js = getJsRuntimeArgs();
-  const ejs = getEjsArgs();
+  const cookies = getCookieArgs();
+
+  const withCookies = (extra: string[]) => [...cookies, ...extra];
 
   return [
-    [...js, ...ejs],
-    [...js, "--remote-components", "ejs:github"],
-    [...js, "--remote-components", "ejs:npm"],
-    [
-      ...js,
-      "--extractor-args",
-      "youtube:player_client=android_vr,web",
-    ],
-    ["--extractor-args", "youtube:player_client=android_vr"],
-    ["--extractor-args", "youtube:player_client=android,web"],
+    withCookies([]),
+    withCookies([...js]),
+    withCookies([...js, "--remote-components", "ejs:github"]),
+    withCookies([...js, "--remote-components", "ejs:npm"]),
+    withCookies(["--extractor-args", "youtube:player_client=web,mweb,android"]),
+    withCookies(["--extractor-args", "youtube:player_client=tv_embedded,web"]),
+    withCookies(["--extractor-args", "youtube:player_client=android_vr,web"]),
+    withCookies(["--extractor-args", "youtube:player_client=android_vr"]),
+    withCookies(["--extractor-args", "youtube:player_client=mweb"]),
   ];
 }
 
@@ -117,10 +129,10 @@ function getInfoArgsForUrl(url: string): string[] {
 }
 
 function getDownloadArgsForUrl(url: string): string[] {
-  const args = [...getConfigArgs(), "--no-playlist", "--no-warnings"];
+  const args = [...getConfigArgs(), ...getCookieArgs(), "--no-playlist", "--no-warnings"];
   if (isYouTubeUrl(url)) {
-    args.push(...getJsRuntimeArgs(), ...getEjsArgs());
-    args.push("--extractor-args", "youtube:player_client=android_vr,web");
+    args.push(...getJsRuntimeArgs(), "--remote-components", "ejs:github");
+    args.push("--extractor-args", "youtube:player_client=web,mweb,android");
   }
   return args;
 }
@@ -132,11 +144,30 @@ function ytdlpEnv(): NodeJS.ProcessEnv {
     ...process.env,
     PATH: pathEnv.includes(extra) ? pathEnv : `${extra}:${pathEnv}`,
     HOME: process.env.HOME ?? "/tmp",
+    TMPDIR: process.env.TMPDIR ?? process.env.TEMP ?? "/tmp",
   };
 }
 
 let ytdlpInstance: YTDlpWrap | null = null;
 let initPromise: Promise<YTDlpWrap> | null = null;
+let updatePromise: Promise<void> | null = null;
+
+async function maybeUpdateBinary(binPath: string): Promise<void> {
+  if (process.env.YTDLP_AUTO_UPDATE === "false") return;
+  if (process.platform === "win32") return;
+  if (process.env.YTDLP_PATH?.trim()) return;
+
+  if (!updatePromise) {
+    updatePromise = execFileAsync(binPath, ["--update-to", "stable"], {
+      timeout: 90_000,
+      env: ytdlpEnv(),
+    })
+      .then(() => undefined)
+      .catch(() => undefined);
+  }
+
+  await updatePromise;
+}
 
 async function ensureBinary(): Promise<string> {
   const binPath = getBinPath();
@@ -147,6 +178,7 @@ async function ensureBinary(): Promise<string> {
     } catch {
       fs.chmodSync(binPath, 0o755);
     }
+    await maybeUpdateBinary(binPath);
     return binPath;
   }
 
@@ -180,6 +212,7 @@ async function runYtdlp(args: string[]): Promise<{ stdout: string; stderr: strin
     const { stdout, stderr } = await execFileAsync(binaryPath, args, {
       maxBuffer: 64 * 1024 * 1024,
       env: ytdlpEnv(),
+      timeout: 120_000,
     });
     return { stdout, stderr: stderr ?? "" };
   } catch (err: unknown) {
@@ -193,17 +226,14 @@ async function runYtdlp(args: string[]): Promise<{ stdout: string; stderr: strin
   }
 }
 
-function countYouTubeStreamFormats(raw: RawInfo): { video: number; audio: number } {
+function rawHasStreamFormats(raw: RawInfo): boolean {
   const formats = raw.formats ?? [];
-  let video = 0;
-  let audio = 0;
   for (const f of formats) {
     const v = f.vcodec ?? "none";
     const a = f.acodec ?? "none";
-    if (v !== "none") video++;
-    else if (a !== "none") audio++;
+    if (v !== "none" || a !== "none") return true;
   }
-  return { video, audio };
+  return false;
 }
 
 function parseRaw(stdout: string): RawInfo | null {
@@ -227,20 +257,21 @@ async function fetchRawInfo(url: string): Promise<RawInfo> {
   }
 
   let lastError: unknown = null;
+  let lastRaw: RawInfo | null = null;
 
   for (const extra of getYouTubeStrategies()) {
     try {
       const { stdout } = await runYtdlp([...base, ...extra, url]);
       const raw = parseRaw(stdout);
       if (!raw) continue;
-
-      const { video, audio } = countYouTubeStreamFormats(raw);
-      if (video > 0 || audio > 0) return raw;
+      lastRaw = raw;
+      if (rawHasStreamFormats(raw)) return raw;
     } catch (err) {
       lastError = err;
     }
   }
 
+  if (lastRaw && lastRaw.title) return lastRaw;
   if (lastError) throw lastError;
   throw new Error(ar.youtubeEngineMissing);
 }
@@ -260,7 +291,7 @@ function extractYtdlpError(err: unknown): string {
   const errorLine = combined.split(/\r?\n/).find((line) => line.includes("ERROR:"));
   if (errorLine) msg = errorLine;
 
-  if (/JavaScript runtime|js-runtimes|challenge solver|ejs:/i.test(combined)) {
+  if (/JavaScript runtime|js-runtimes|challenge solver|ejs:|n challenge solving/i.test(combined)) {
     return ar.youtubeEngineMissing;
   }
 
@@ -303,21 +334,47 @@ export async function fetchMediaInfo(url: string) {
   const resolvedUrl = await resolveMediaUrl(url);
 
   try {
-    const raw = await withTimeout(fetchRawInfo(resolvedUrl), 90_000, ar.fetchTimeout);
-    return parseMediaInfo(raw, resolvedUrl);
+    const raw = await withTimeout(fetchRawInfo(resolvedUrl), 110_000, ar.fetchTimeout);
+    const info = parseMediaInfo(raw, resolvedUrl);
+    if (
+      info.videoFormats.length > 0 ||
+      info.audioFormats.length > 0 ||
+      info.imageFormats.length > 0
+    ) {
+      return info;
+    }
   } catch (err) {
-    throw new Error(extractYtdlpError(err));
+    if (!isYouTubeUrl(resolvedUrl)) {
+      throw new Error(extractYtdlpError(err));
+    }
   }
+
+  if (isYouTubeUrl(resolvedUrl)) {
+    const fallback = await fetchYouTubeViaInvidious(resolvedUrl);
+    if (
+      fallback &&
+      (fallback.videoFormats.length > 0 || fallback.audioFormats.length > 0)
+    ) {
+      return fallback;
+    }
+  }
+
+  throw new Error(ar.youtubeEngineMissing);
 }
 
 function buildFormatSpec(formatId: string, merge: boolean): string {
   if (!merge || formatId.includes("+") || formatId.includes("/")) return formatId;
-  if (/mp3|m4a|audio|dash_aud|http_/i.test(formatId)) return formatId;
+  if (/mp3|m4a|audio|dash_aud|http_|^inv-a-/i.test(formatId)) return formatId;
+  if (/^inv-/.test(formatId)) return formatId;
   if (/^\d+$/.test(formatId)) return `${formatId}+bestaudio/best`;
   return formatId;
 }
 
 export async function createDownloadStream(url: string, formatId: string, merge = false) {
+  if (/^inv-/.test(formatId)) {
+    throw new Error(ar.videoDownloadFailed);
+  }
+
   const ytdlp = await getYtdlp();
   const formatSpec = buildFormatSpec(formatId, merge);
   const args = [...getDownloadArgsForUrl(url), "-f", formatSpec, url, "-o", "-"];
@@ -327,6 +384,22 @@ export async function createDownloadStream(url: string, formatId: string, merge 
   }
 
   return ytdlp.execStream(args, { env: ytdlpEnv() });
+}
+
+const STREAM_MIME: Record<string, string> = {
+  mp4: "video/mp4",
+  webm: "video/webm",
+  mkv: "video/x-matroska",
+  mov: "video/quicktime",
+  mp3: "audio/mpeg",
+  m4a: "audio/mp4",
+  opus: "audio/opus",
+  ogg: "audio/ogg",
+  wav: "audio/wav",
+};
+
+export function mimeForMediaExt(ext: string, fallback: string): string {
+  return STREAM_MIME[ext.toLowerCase()] ?? fallback;
 }
 
 export async function fetchDirectUrl(sourceUrl: string): Promise<{
@@ -339,16 +412,16 @@ export async function fetchDirectUrl(sourceUrl: string): Promise<{
     headers: {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-      Accept: "image/*,*/*",
+      Accept: "*/*",
     },
-    signal: AbortSignal.timeout(60_000),
+    signal: AbortSignal.timeout(120_000),
   });
 
   if (!res.ok) {
     throw new Error(`${ar.imageFetchFailed} (${res.status})`);
   }
 
-  const contentType = res.headers.get("content-type") ?? "image/jpeg";
+  const contentType = res.headers.get("content-type") ?? "application/octet-stream";
   const body = res.body;
   if (!body) throw new Error(ar.emptyImageResponse);
 

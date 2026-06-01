@@ -6,7 +6,7 @@ import { infoBodySchema } from "@/lib/validate";
 import { formatDuration } from "@/lib/utils";
 import type { MediaInfo } from "@/lib/types";
 
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function POST(request: Request) {
   const limited = guardRequest(request, "info");

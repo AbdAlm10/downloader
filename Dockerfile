@@ -16,7 +16,7 @@ RUN apt-get update \
     -o /usr/local/bin/yt-dlp \
   && chmod a+rx /usr/local/bin/yt-dlp \
   && /usr/local/bin/yt-dlp --version \
-  && curl -fsSL https://deno.land/install.sh | sh \
+  && curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/usr/local sh \
   && /usr/local/bin/deno --version \
   && test -x /usr/local/bin/node \
   && rm -rf /var/lib/apt/lists/*
