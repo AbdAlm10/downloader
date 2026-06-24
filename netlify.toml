@@ -1,5 +1,4 @@
-# Static PWA — no Render, no server. YouTube runs in the browser.
-# Optional: set NEXT_PUBLIC_CORS_PROXY_URL for TikTok/Instagram (see workers/cors-proxy.js).
+# Static PWA + Netlify Edge for YouTube (free, no Render).
 
 [build]
   command = "npm run build"
@@ -8,6 +7,10 @@
 [build.environment]
   NODE_VERSION = "20"
   NEXT_PUBLIC_STATIC_ONLY = "true"
+
+[[edge_functions]]
+  path = "/api/youtube/info"
+  function = "youtube-info"
 
 [[headers]]
   for = "/*"

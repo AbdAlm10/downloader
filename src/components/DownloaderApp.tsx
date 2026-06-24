@@ -52,7 +52,7 @@ export function DownloaderApp() {
     try {
       if (isYoutubeUrl(trimmed)) {
         const { fetchYoutubeOnDevice } = await import("@/lib/youtube-browser");
-        const data = await fetchYoutubeOnDevice(trimmed);
+        const data = await fetchYoutubeOnDevice(trimmed, abortSignalWithTimeout(55_000));
         setInfo(data);
         setMediaType(defaultMediaType(data));
         return;

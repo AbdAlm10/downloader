@@ -1,10 +1,6 @@
 import { ar } from "./ar";
 import { abortSignalWithTimeout } from "./client-errors";
-import {
-  YOUTUBE_INNERTUBE_CLIENT_ORDER,
-  YOUTUBE_INNERTUBE_CLIENTS,
-  type YoutubeInnertubeClientName,
-} from "./youtube-clients";
+import { YOUTUBE_INNERTUBE_CLIENT_ORDER, YOUTUBE_INNERTUBE_CLIENTS } from "./youtube-clients";
 import {
   mapInnertubeStreamingToInfo,
   type InnertubeStreamFormat,
@@ -13,9 +9,12 @@ import {
 
 /** Public InnerTube key used by YouTube's web/Android clients */
 const INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
-const PLAYER_URL = `https://www.youtube.com/youtubei/v1/player?key=${INNERTUBE_KEY}`;
+const PLAYER_URLS = [
+  `https://www.youtube.com/youtubei/v1/player?key=${INNERTUBE_KEY}`,
+  `https://youtubei.googleapis.com/youtubei/v1/player?key=${INNERTUBE_KEY}`,
+];
 
-type DirectClient = YoutubeInnertubeClientName;
+type DirectClient = keyof typeof YOUTUBE_INNERTUBE_CLIENTS;
 
 const CLIENT_BODIES = YOUTUBE_INNERTUBE_CLIENTS;
 const CLIENT_ORDER = YOUTUBE_INNERTUBE_CLIENT_ORDER;
@@ -100,19 +99,22 @@ async function postPlayer(
     Referer: `https://www.youtube.com/watch?v=${videoId}`,
   };
 
-  const res = await fetch(PLAYER_URL, {
-    method: "POST",
-    signal: signal ?? abortSignalWithTimeout(18_000),
-    credentials: "omit",
-    headers,
-    body,
-  });
-  if (!res.ok) return null;
+  for (const playerUrl of PLAYER_URLS) {
+    const res = await fetch(playerUrl, {
+      method: "POST",
+      signal: signal ?? abortSignalWithTimeout(18_000),
+      credentials: "omit",
+      headers,
+      body,
+    });
+    if (!res.ok) continue;
 
-  const data = (await res.json()) as RawPlayerResponse;
-  if (data.playabilityStatus?.status !== "OK") return null;
-  if (!data.streamingData) return null;
-  return data;
+    const data = (await res.json()) as RawPlayerResponse;
+    if (data.playabilityStatus?.status !== "OK") continue;
+    if (!data.streamingData) continue;
+    return data;
+  }
+  return null;
 }
 
 /** Lightweight InnerTube player call — no youtubei.js init (works when the library fails to load). */

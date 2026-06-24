@@ -40,13 +40,18 @@ function normalizeFormat(f: RawPlayerFormat): InnertubeStreamFormat {
 }
 
 export function extractPlayerResponseFromHtml(html: string): RawPlayerResponse | null {
-  const marker = "ytInitialPlayerResponse";
-  const idx = html.indexOf(marker);
-  if (idx < 0) return null;
+  const markers = ["var ytInitialPlayerResponse = ", "ytInitialPlayerResponse = "];
+  for (const marker of markers) {
+    const idx = html.indexOf(marker);
+    if (idx < 0) continue;
+    const parsed = extractBalancedJson(html, html.indexOf("{", idx));
+    if (parsed) return parsed;
+  }
+  return null;
+}
 
-  const start = html.indexOf("{", idx);
+function extractBalancedJson(html: string, start: number): RawPlayerResponse | null {
   if (start < 0) return null;
-
   let depth = 0;
   for (let i = start; i < html.length; i++) {
     const ch = html[i];

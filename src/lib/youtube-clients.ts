@@ -27,5 +27,4 @@ export type YoutubeInnertubeClientName = keyof typeof YOUTUBE_INNERTUBE_CLIENTS;
 export const YOUTUBE_INNERTUBE_CLIENT_ORDER: YoutubeInnertubeClientName[] = [
   "ANDROID",
   "IOS",
-  "TV",
 ];

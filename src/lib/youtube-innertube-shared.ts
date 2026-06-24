@@ -1,12 +1,11 @@
 import type { FormatOption } from "./types";
 import { ar } from "./ar";
 
+import { YOUTUBE_INNERTUBE_CLIENT_ORDER } from "./youtube-clients";
+
 export const INNERTUBE_CLIENTS = [
-  "ANDROID",
-  "IOS",
+  ...YOUTUBE_INNERTUBE_CLIENT_ORDER,
   "MWEB",
-  "ANDROID_VR",
-  "TV_EMBEDDED",
   "WEB_EMBEDDED",
 ] as const;
 

@@ -3,6 +3,7 @@
 import { ar } from "./ar";
 import type { MediaInfo } from "./types";
 import { formatDuration } from "./utils";
+import { fetchYoutubeViaEdge } from "./youtube-edge";
 import { extractYouTubeVideoId, isYoutubeUrl, normalizeYoutubeWatchUrl } from "./youtube-url";
 import {
   downloadGoogleVideoStream,
@@ -30,11 +31,11 @@ type YoutubeCandidate = {
   imageFormats: MediaInfo["imageFormats"];
 };
 
-function hasFormats(info: YoutubeCandidate | null): boolean {
+function hasFormats(info: YoutubeCandidate | MediaInfo | null): boolean {
   return Boolean(info && (info.videoFormats.length > 0 || info.audioFormats.length > 0));
 }
 
-function formatScore(info: YoutubeCandidate | null): number {
+function formatScore(info: YoutubeCandidate | MediaInfo | null): number {
   if (!info) return 0;
   return info.videoFormats.length * 10 + info.audioFormats.length;
 }
@@ -47,13 +48,23 @@ function toMediaInfo(mapped: YoutubeCandidate): MediaInfo {
   };
 }
 
-function pickBest(...candidates: (YoutubeCandidate | null)[]): YoutubeCandidate | null {
-  let best: YoutubeCandidate | null = null;
+function pickBest(...candidates: (YoutubeCandidate | MediaInfo | null)[]): MediaInfo | null {
+  let best: MediaInfo | null = null;
   let bestScore = 0;
   for (const c of candidates) {
+    if (!c) continue;
     const score = formatScore(c);
     if (score > bestScore) {
-      best = c;
+      const info: MediaInfo = {
+        ...c,
+        durationLabel:
+          "durationLabel" in c && c.durationLabel
+            ? c.durationLabel
+            : formatDuration(c.duration),
+        analyzedOnDevice:
+          "analyzedOnDevice" in c ? Boolean(c.analyzedOnDevice) : true,
+      };
+      best = info;
       bestScore = score;
     }
   }
@@ -67,9 +78,17 @@ async function fetchViaYoutubeiLib(
   try {
     const { Innertube } = await import("youtubei.js/web");
     const tube = await Promise.race([
-      Innertube.create(),
+      Innertube.create({
+        fetch: async (input, init) => {
+          const target = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+          if (/youtube\.com\/youtubei|youtubei\.googleapis\.com/.test(target)) {
+            return fetch(target, init);
+          }
+          return fetch(input, init);
+        },
+      }),
       new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("timeout")), 35_000);
+        setTimeout(() => reject(new Error("timeout")), 25_000);
       }),
     ]);
 
@@ -100,8 +119,12 @@ async function fetchViaYoutubeiLib(
   return null;
 }
 
-/** Analyze YouTube — parallel sources, works for youtu.be / shorts / music links. */
-export async function fetchYoutubeOnDevice(url: string): Promise<MediaInfo> {
+/**
+ * Analyze YouTube:
+ * 1) Netlify Edge /api/youtube/info (works for all links on production)
+ * 2) Browser InnerTube + Piped + watch-page fallbacks (localhost / backup)
+ */
+export async function fetchYoutubeOnDevice(url: string, signal?: AbortSignal): Promise<MediaInfo> {
   if (!isYoutubeUrl(url)) throw new Error(ar.invalidUrl);
 
   const videoId = extractYouTubeVideoId(url);
@@ -109,15 +132,18 @@ export async function fetchYoutubeOnDevice(url: string): Promise<MediaInfo> {
 
   const watchUrl = normalizeYoutubeWatchUrl(url)!;
 
+  const edge = await fetchYoutubeViaEdge(url, signal);
+  if (hasFormats(edge)) return edge!;
+
   const [direct, piped, fromLib, fromPage] = await Promise.all([
-    fetchYoutubePlayerDirect(videoId, watchUrl),
-    fetchYoutubeViaPiped(url),
+    fetchYoutubePlayerDirect(videoId, watchUrl, signal),
+    fetchYoutubeViaPiped(url, signal),
     fetchViaYoutubeiLib(videoId, watchUrl),
-    fetchYoutubeFromWatchPage(videoId, watchUrl),
+    fetchYoutubeFromWatchPage(videoId, watchUrl, signal),
   ]);
 
   const best = pickBest(direct, fromLib, fromPage, piped);
-  if (best) return toMediaInfo(best);
+  if (best) return best;
 
   throw new Error(ar.youtubeEngineMissing);
 }
