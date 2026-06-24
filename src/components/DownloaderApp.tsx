@@ -6,6 +6,7 @@ import { saveBlobAsFile, type DownloadProgressState } from "@/lib/download-clien
 import { defaultMediaType, findFormat, formatsForType } from "@/lib/media-helpers";
 import { abortSignalWithTimeout, resolveUiError } from "@/lib/client-errors";
 import { isYoutubeNavigateError } from "@/lib/youtube-download";
+import { isExternalNavigateError } from "@/lib/client-download";
 import { isStaticOnly } from "@/lib/static-mode";
 import type { MediaInfo, MediaType } from "@/lib/types";
 import { TopBar } from "./TopBar";
@@ -56,13 +57,8 @@ export function DownloaderApp() {
         return;
       }
 
-      const { canAnalyzeOnDevice, fetchMediaOnDevice } = await import("@/lib/client-media");
-      if (!canAnalyzeOnDevice(trimmed)) {
-        setError(ar.unsupportedUrl);
-        return;
-      }
-
-      const data = await fetchMediaOnDevice(trimmed, abortSignalWithTimeout(50_000));
+      const { fetchMediaOnDevice } = await import("@/lib/client-media");
+      const data = await fetchMediaOnDevice(trimmed, abortSignalWithTimeout(55_000));
       setInfo(data);
       const type = defaultMediaType(data);
       setMediaType(type);
@@ -116,8 +112,8 @@ export function DownloaderApp() {
         throw new Error(ar.downloadFailed);
       }
 
-      const { downloadMediaUrl } = await import("@/lib/cors-proxy");
-      const blob = await downloadMediaUrl(format.directUrl, {
+      const { downloadMediaWithFallback } = await import("@/lib/client-download");
+      const blob = await downloadMediaWithFallback(format.directUrl, {
         signal: abort.signal,
         onProgress: (loaded, total) =>
           setDownloadProgress({
@@ -132,7 +128,7 @@ export function DownloaderApp() {
         setError(ar.downloadCancelled);
         return;
       }
-      if (isYoutubeNavigateError(err)) {
+      if (isYoutubeNavigateError(err) || isExternalNavigateError(err)) {
         setError(err instanceof Error ? err.message : ar.downloadOpenedExternally);
         return;
       }

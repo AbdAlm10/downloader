@@ -1,5 +1,10 @@
 import { ar } from "./ar";
 import { isStaticOnly } from "./static-mode";
+import {
+  buildProxyUrls,
+  fetchViaProxyChain,
+  fetchTextViaProxyChain as fetchTextChain,
+} from "./public-cors-proxies";
 
 const DEFAULT_HEADERS = {
   "User-Agent":
@@ -8,43 +13,44 @@ const DEFAULT_HEADERS = {
   "Accept-Language": "en-US,en;q=0.9,ar;q=0.8",
 } as const;
 
-/** External Worker (`https://x.workers.dev/proxy?url=`) or same-origin `/api/proxy?url=` when not static. */
+/** Built-in free proxies, optional custom worker, or same-origin `/api/proxy` in server mode. */
 export function getProxyFetchUrl(targetUrl: string): string {
-  const external = process.env.NEXT_PUBLIC_CORS_PROXY_URL?.trim();
-  if (external) {
-    const base = external.includes("?url=")
-      ? external
-      : `${external.replace(/\/$/, "")}/proxy?url=`;
-    return base + encodeURIComponent(targetUrl);
-  }
-  if (isStaticOnly()) {
-    throw new Error(ar.staticProxyRequired);
-  }
-  return `/api/proxy?url=${encodeURIComponent(targetUrl)}`;
+  return buildProxyUrls(targetUrl)[0]!;
 }
 
 export async function fetchViaProxy(
   targetUrl: string,
   init: RequestInit = {}
 ): Promise<Response> {
-  const res = await fetch(getProxyFetchUrl(targetUrl), {
-    ...init,
-    headers: {
-      ...DEFAULT_HEADERS,
-      ...(init.headers as Record<string, string> | undefined),
-    },
-  });
-
-  if (!res.ok) {
-    throw new Error(`${ar.unreachable} (${res.status})`);
+  if (!isStaticOnly()) {
+    const external = process.env.NEXT_PUBLIC_CORS_PROXY_URL?.trim();
+    if (!external) {
+      try {
+        const res = await fetch(`/api/proxy?url=${encodeURIComponent(targetUrl)}`, init);
+        if (res.ok) return res;
+      } catch {
+        /* fall through to public proxies */
+      }
+    }
   }
 
-  return res;
+  try {
+    return await fetchViaProxyChain(targetUrl, init);
+  } catch (err) {
+    throw err instanceof Error ? err : new Error(ar.unreachable);
+  }
 }
 
 export async function fetchTextViaProxy(targetUrl: string, signal?: AbortSignal): Promise<string> {
-  const res = await fetchViaProxy(targetUrl, { signal });
-  return res.text();
+  if (!isStaticOnly()) {
+    try {
+      const res = await fetch(`/api/proxy?url=${encodeURIComponent(targetUrl)}`, { signal });
+      if (res.ok) return res.text();
+    } catch {
+      /* use chain */
+    }
+  }
+  return fetchTextChain(targetUrl, signal);
 }
 
 async function readResponseBlob(
@@ -88,7 +94,18 @@ async function readResponseBlob(
   return blob;
 }
 
-/** Try direct fetch first; fall back to CORS proxy when blocked. */
+const CDN_REFERERS: { pattern: RegExp; referer: string }[] = [
+  { pattern: /tiktok|tikwm|muscdn/i, referer: "https://www.tiktok.com/" },
+  { pattern: /instagram|cdninstagram/i, referer: "https://www.instagram.com/" },
+  { pattern: /fbcdn|facebook/i, referer: "https://www.facebook.com/" },
+  { pattern: /twimg|twitter/i, referer: "https://twitter.com/" },
+];
+
+function refererForUrl(mediaUrl: string): string | undefined {
+  return CDN_REFERERS.find((r) => r.pattern.test(mediaUrl))?.referer;
+}
+
+/** Try direct fetch first; fall back to free CORS proxy chain when blocked. */
 export async function downloadMediaUrl(
   mediaUrl: string,
   options: {
@@ -96,10 +113,15 @@ export async function downloadMediaUrl(
     onProgress?: (loaded: number, total: number | null) => void;
   } = {}
 ): Promise<Blob> {
+  const referer = refererForUrl(mediaUrl);
+  const fetchHeaders: Record<string, string> = { ...DEFAULT_HEADERS };
+  if (referer) fetchHeaders.Referer = referer;
+
   try {
     const direct = await fetch(mediaUrl, {
       signal: options.signal,
-      headers: DEFAULT_HEADERS,
+      headers: fetchHeaders,
+      credentials: "omit",
     });
     if (direct.ok) {
       return readResponseBlob(direct, options);

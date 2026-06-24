@@ -107,8 +107,7 @@ function dedupeUrls(urls: string[]): string[] {
   return [...new Set(urls.filter((u) => u.startsWith("http")))];
 }
 
-export function detectClientPlatform(url: string): ClientPlatform | null {
-  if (/youtube\.com|youtu\.be/i.test(url)) return null;
+export function detectClientPlatform(url: string): ClientPlatform {
   if (/instagram\.com/i.test(url)) return "instagram";
   if (/tiktok\.com|vm\.tiktok|vt\.tiktok/i.test(url)) return "tiktok";
   if (/twitter\.com|x\.com/i.test(url)) return "twitter";

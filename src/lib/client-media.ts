@@ -4,6 +4,7 @@ import { ar } from "./ar";
 import type { MediaInfo } from "./types";
 import { formatDuration } from "./utils";
 import { fetchTextViaProxy } from "./cors-proxy";
+import { fetchViaPlatformApis } from "./platform-apis";
 import {
   detectClientPlatform,
   extractMediaFromHtml,
@@ -12,9 +13,18 @@ import {
 } from "./client-extractors";
 import { extractYouTubeVideoId } from "./youtube-piped";
 
+export function isValidMediaUrl(url: string): boolean {
+  try {
+    const u = new URL(url.trim());
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 export function canAnalyzeOnDevice(url: string): boolean {
   if (/youtube\.com|youtu\.be/i.test(url)) return true;
-  return detectClientPlatform(url) !== null;
+  return isValidMediaUrl(url);
 }
 
 function toMediaInfo(
@@ -49,16 +59,23 @@ function toMediaInfo(
   };
 }
 
-/** Fetch page HTML through CORS proxy and extract public media URLs. */
+/**
+ * Analyze any supported URL on the user's device:
+ * 1) free platform APIs (TikTok, Instagram, X, …)
+ * 2) HTML/Open Graph via public CORS proxies
+ */
 export async function fetchMediaOnDevice(
   url: string,
   signal?: AbortSignal
 ): Promise<MediaInfo> {
-  const platform = detectClientPlatform(url);
-  if (!platform) {
-    throw new Error(ar.unsupportedUrl);
+  if (!isValidMediaUrl(url)) {
+    throw new Error(ar.invalidUrl);
   }
 
+  const fromApi = await fetchViaPlatformApis(url, signal);
+  if (fromApi) return fromApi;
+
+  const platform = detectClientPlatform(url);
   const html = await fetchTextViaProxy(url, signal);
   const extracted = extractMediaFromHtml(html, platform, url);
   const info = toMediaInfo(extracted, url, platform);
@@ -71,11 +88,11 @@ export async function fetchMediaOnDevice(
 }
 
 export function isWebFormatId(formatId: string): boolean {
-  return formatId.startsWith("web-");
+  return formatId.startsWith("web-") || formatId.startsWith("api-");
 }
 
 export function shouldDownloadOnDevice(info: MediaInfo, formatId: string): boolean {
   if (!info.analyzedOnDevice) return false;
   if (/youtube|يوتيوب/i.test(info.platform) && formatId.startsWith("inn-")) return false;
-  return formatId.startsWith("web-") || formatId.startsWith("inn-");
+  return formatId.startsWith("web-") || formatId.startsWith("api-") || formatId.startsWith("inn-");
 }
