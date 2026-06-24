@@ -8,6 +8,9 @@ import { isDirectImageUrl } from "@/lib/image-url";
 import { assertPublicHttpUrl } from "@/lib/security/url";
 import { consumeDownloadSession } from "@/lib/download-session";
 import { createDownloadStream, fetchDirectUrl, mimeForMediaExt } from "@/lib/ytdlp";
+import { resolveInnertubePlayableUrl } from "@/lib/youtube-innertube";
+import { resolveYoutubeStreamUrl } from "@/lib/youtube-innertube-direct";
+import { extractYouTubeVideoId } from "@/lib/youtube-piped";
 import { downloadQuerySchema, sanitizeFilename } from "@/lib/validate";
 import { createReadStream, statSync, unlink } from "fs";
 
@@ -63,8 +66,45 @@ export async function GET(request: NextRequest) {
       return jsonError(ar.formatIdInvalid, 400);
     }
 
+    if (!token && url && formatId.startsWith("inn-")) {
+      const playable = await resolveInnertubePlayableUrl(url, formatId);
+      if (playable) {
+        const { body, contentType } = await fetchDirectUrl(playable);
+        const mediaMime = mimeForMediaExt(ext ?? "mp4", contentType);
+        return new NextResponse(body, {
+          headers: {
+            ...DOWNLOAD_HEADERS,
+            "Content-Type": mediaMime,
+            "Content-Disposition": disposition,
+          },
+        });
+      }
+
+      const nodeStream = createDownloadStream(url, formatId, merge === "true");
+      const mediaMime = mimeForMediaExt(ext ?? "mp4", "application/octet-stream");
+      return new NextResponse(nodeStreamToWeb(nodeStream), {
+        headers: {
+          ...DOWNLOAD_HEADERS,
+          "Content-Type": mediaMime,
+          "Content-Disposition": disposition,
+        },
+      });
+    }
+
     if (directUrl || formatId.startsWith("img-") || formatId.startsWith("inv-")) {
-      const streamUrl = directUrl ?? "";
+      let streamUrl = directUrl ?? "";
+
+      if (
+        !streamUrl &&
+        formatId.startsWith("inn-") &&
+        url
+      ) {
+        const videoId = extractYouTubeVideoId(url);
+        if (videoId) {
+          streamUrl = (await resolveYoutubeStreamUrl(videoId, formatId)) ?? "";
+        }
+      }
+
       if (!streamUrl) {
         return jsonError(ar.missingImageUrl, 400);
       }

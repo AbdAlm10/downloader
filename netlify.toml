@@ -1,8 +1,28 @@
-# Netlify = واجهة الدخول فقط — التحليل والتحميل يعملان على Render (Docker + yt-dlp).
-# عند إضافة Railway لاحقاً: غيّر الرابط أدناه إلى رابط Railway.
+# Static PWA — no Render, no server. YouTube runs in the browser.
+# Optional: set NEXT_PUBLIC_CORS_PROXY_URL for TikTok/Instagram (see workers/cors-proxy.js).
 
-[[redirects]]
-  from = "/*"
-  to = "https://almonzel.onrender.com/:splat"
-  status = 302
-  force = true
+[build]
+  command = "npm run build"
+  publish = "out"
+
+[build.environment]
+  NODE_VERSION = "20"
+  NEXT_PUBLIC_STATIC_ONLY = "true"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/manifest.webmanifest"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

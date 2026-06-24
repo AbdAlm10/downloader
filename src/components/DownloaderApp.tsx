@@ -2,26 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ar } from "@/lib/ar";
-import {
-  downloadWithProgress,
-  saveBlobAsFile,
-  type DownloadProgressState,
-} from "@/lib/download-client";
-import {
-  buildDownloadParams,
-  defaultMediaType,
-  findFormat,
-  formatsForType,
-} from "@/lib/media-helpers";
-import { isYoutubePresetFormatId } from "@/lib/youtube-formats";
-import { usesAltYoutubeDownload } from "@/lib/youtube";
-import type { ApiResponse, MediaInfo, MediaType } from "@/lib/types";
+import { saveBlobAsFile, type DownloadProgressState } from "@/lib/download-client";
+import { defaultMediaType, findFormat, formatsForType } from "@/lib/media-helpers";
+import { abortSignalWithTimeout, resolveUiError } from "@/lib/client-errors";
+import { isYoutubeNavigateError } from "@/lib/youtube-download";
+import { isStaticOnly } from "@/lib/static-mode";
+import type { MediaInfo, MediaType } from "@/lib/types";
 import { TopBar } from "./TopBar";
 import { HeroSection } from "./HeroSection";
 import { UrlInput } from "./UrlInput";
 import { ResultsPanel } from "./ResultsPanel";
 import { AppFooter } from "./AppFooter";
-import { useFailover } from "@/hooks/useFailover";
 
 function captureClientError(err: unknown) {
   if (process.env.NODE_ENV === "production") {
@@ -39,38 +30,7 @@ export function DownloaderApp() {
   const [info, setInfo] = useState<MediaInfo | null>(null);
   const [mediaType, setMediaType] = useState<MediaType>("video");
   const [selectedFormatId, setSelectedFormatId] = useState<string | null>(null);
-  const [engineReady, setEngineReady] = useState<boolean | null>(null);
   const downloadAbortRef = useRef<AbortController | null>(null);
-
-  useFailover();
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const check = async () => {
-      try {
-        const res = await fetch("/api/health", {
-          cache: "no-store",
-          signal: AbortSignal.timeout(8_000),
-        });
-        if (!res.ok) {
-          if (!cancelled) setEngineReady(false);
-          return;
-        }
-        const d: { ready?: boolean } = await res.json();
-        if (!cancelled) setEngineReady(d.ready === true);
-      } catch {
-        if (!cancelled) setEngineReady(false);
-      }
-    };
-
-    check();
-    const id = window.setInterval(check, 60_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, []);
 
   const currentFormats = info ? formatsForType(info, mediaType) : [];
 
@@ -88,29 +48,27 @@ export function DownloaderApp() {
     setInfo(null);
 
     try {
-      const res = await fetch("/api/info", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: trimmed }),
-        signal: AbortSignal.timeout(50_000),
-      });
-      const data: ApiResponse = await res.json();
-
-      if (!data.success) {
-        setError(data.error);
+      if (/youtube\.com|youtu\.be/i.test(trimmed)) {
+        const { fetchYoutubeOnDevice } = await import("@/lib/youtube-browser");
+        const data = await fetchYoutubeOnDevice(trimmed);
+        setInfo(data);
+        setMediaType(defaultMediaType(data));
         return;
       }
 
-      setInfo(data.data);
-      const type = defaultMediaType(data.data);
-      setMediaType(type);
-      setSelectedFormatId(formatsForType(data.data, type)[0]?.id ?? null);
-    } catch (err) {
-      if (err instanceof Error && err.name === "TimeoutError") {
-        setError(ar.fetchTimeout);
-      } else {
-        setError(ar.networkError);
+      const { canAnalyzeOnDevice, fetchMediaOnDevice } = await import("@/lib/client-media");
+      if (!canAnalyzeOnDevice(trimmed)) {
+        setError(ar.unsupportedUrl);
+        return;
       }
+
+      const data = await fetchMediaOnDevice(trimmed, abortSignalWithTimeout(50_000));
+      setInfo(data);
+      const type = defaultMediaType(data);
+      setMediaType(type);
+      setSelectedFormatId(formatsForType(data, type)[0]?.id ?? null);
+    } catch (err) {
+      setError(resolveUiError(err, ar.fetchFailed));
       captureClientError(err);
     } finally {
       setLoading(false);
@@ -132,74 +90,57 @@ export function DownloaderApp() {
     setError(null);
     setDownloadProgress({ loaded: 0, total: format.filesize ?? null, percent: 0 });
 
+    const isYoutube =
+      /youtube|يوتيوب/i.test(info.platform) && mediaType !== "image";
+
     try {
-      const usePrepare =
-        /youtube|يوتيوب/i.test(info.platform) &&
-        mediaType !== "image" &&
-        !format.directUrl &&
-        !usesAltYoutubeDownload(selectedFormatId, format.directUrl);
-
-      let downloadUrl: string;
-
-      if (usePrepare) {
+      if (isYoutube) {
         setPreparingDownload(true);
-        const merge =
-          mediaType === "video" &&
-          (isYoutubePresetFormatId(selectedFormatId) ||
-            !format.hasAudio ||
-            selectedFormatId.includes("+"));
-
-        const prepRes = await fetch("/api/download/prepare", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            url: info.webpageUrl,
-            formatId: selectedFormatId,
-            title: info.title,
-            ext: format.ext,
-            merge,
-          }),
-          signal: abort.signal,
-        });
-        const prepData = (await prepRes.json()) as {
-          success?: boolean;
-          token?: string;
-          error?: string;
-        };
+        const { downloadYoutubeFormat } = await import("@/lib/youtube-download");
+        const blob = await downloadYoutubeFormat(
+          info,
+          format,
+          selectedFormatId,
+          mediaType,
+          {
+            signal: abort.signal,
+            onProgress: setDownloadProgress,
+          }
+        );
         setPreparingDownload(false);
-
-        if (!prepRes.ok || !prepData.success || !prepData.token) {
-          throw new Error(prepData.error ?? ar.downloadFailed);
-        }
-
-        const tokenParams = new URLSearchParams({
-          token: prepData.token,
-          title: info.title,
-          ext: format.ext,
-        });
-        downloadUrl = `/api/download?${tokenParams}`;
-      } else {
-        downloadUrl = `/api/download?${buildDownloadParams(info, format, selectedFormatId, mediaType)}`;
+        saveBlobAsFile(blob, info.title, format.ext);
+        return;
       }
 
-      const blob = await downloadWithProgress(downloadUrl, {
-        expectedSize: format.filesize,
-        signal: abort.signal,
-        onProgress: setDownloadProgress,
-      });
+      if (!format.directUrl) {
+        throw new Error(ar.downloadFailed);
+      }
 
+      const { downloadMediaUrl } = await import("@/lib/cors-proxy");
+      const blob = await downloadMediaUrl(format.directUrl, {
+        signal: abort.signal,
+        onProgress: (loaded, total) =>
+          setDownloadProgress({
+            loaded,
+            total,
+            percent: total ? Math.min(99, Math.round((loaded / total) * 100)) : null,
+          }),
+      });
       saveBlobAsFile(blob, info.title, format.ext);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         setError(ar.downloadCancelled);
         return;
       }
+      if (isYoutubeNavigateError(err)) {
+        setError(err instanceof Error ? err.message : ar.downloadOpenedExternally);
+        return;
+      }
       setError(
-        err instanceof Error
-          ? err.message
-          : mediaType === "image"
-            ? ar.imageDownloadFailed
-            : ar.videoDownloadFailed
+        resolveUiError(
+          err,
+          mediaType === "image" ? ar.imageDownloadFailed : ar.videoDownloadFailed
+        )
       );
       captureClientError(err);
     } finally {
@@ -228,9 +169,11 @@ export function DownloaderApp() {
         ? ar.downloadAudio
         : ar.downloadVideo;
 
+  const staticMode = isStaticOnly();
+
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
-      <TopBar ready={engineReady} />
+      <TopBar ready={staticMode ? true : null} />
 
       <main className="relative min-h-0 flex-1 overflow-hidden">
         {!info ? (
@@ -248,9 +191,9 @@ export function DownloaderApp() {
                   />
                 </div>
 
-                {engineReady === false && (
+                {staticMode && (
                   <p className="mt-3 text-center text-[12px] font-light text-[var(--text-secondary)]">
-                    {ar.engineNotReady}
+                    {ar.staticModeHint}
                   </p>
                 )}
 

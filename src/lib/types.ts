@@ -28,6 +28,8 @@ export interface MediaInfo {
   videoFormats: FormatOption[];
   audioFormats: FormatOption[];
   imageFormats: FormatOption[];
+  /** Resolved on the user device (browser) — not via Render/yt-dlp */
+  analyzedOnDevice?: boolean;
 }
 
 export interface InfoResponse {

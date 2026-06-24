@@ -30,6 +30,8 @@ RUN npm ci
 
 COPY . .
 ENV NODE_OPTIONS="--max-old-space-size=460"
+ENV NEXT_PUBLIC_STATIC_ONLY=false
+RUN if [ -d src/app/_server-api ]; then mv src/app/_server-api src/app/api; fi
 RUN npm run build
 
 RUN mkdir -p .bin && ln -sf "${YTDLP_PATH}" .bin/yt-dlp

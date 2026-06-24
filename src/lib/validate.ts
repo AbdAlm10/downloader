@@ -8,8 +8,9 @@ const NUMERIC_FORMAT_ID = /^[a-zA-Z0-9+._:-]+$/;
 
 function isAllowedFormatId(id: string): boolean {
   if (id in YT_FORMAT_SPECS) return true;
+  if (/^web-(?:v|a|img)-\d+$/.test(id)) return true;
   if (/^piped-(?:v|vo|a)-[\w-]+$/.test(id)) return true;
-  if (/^inn-(?:a-)?[\w-]+$/.test(id)) return true;
+  if (/^inn-(?:q-\d{3,4}p|q-audio|a-)?[\w-]+$/.test(id)) return true;
   return id.length <= 64 && NUMERIC_FORMAT_ID.test(id);
 }
 
@@ -50,6 +51,7 @@ export const downloadPrepareSchema = z.object({
   title: z.string().max(200).optional(),
   ext: extSchema,
   merge: z.boolean().optional(),
+  directUrl: urlSchema.optional(),
 });
 
 export const downloadQuerySchema = z

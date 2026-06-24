@@ -51,10 +51,7 @@ export function isYoutubeUrl(url: string): boolean {
 
 export function usesAltYoutubeDownload(formatId: string, directUrl?: string): boolean {
   if (directUrl) return true;
-  return (
-    formatId.startsWith("piped-") ||
-    formatId.startsWith("inn-")
-  );
+  return formatId.startsWith("piped-") || formatId.startsWith("inn-");
 }
 
 /** YouTube downloads must use InnerTube/Piped direct URLs — never yt-dlp presets on the server. */

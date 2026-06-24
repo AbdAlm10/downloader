@@ -29,12 +29,17 @@ export const ar = {
   invalidExtension: "صيغة الملف غير مدعومة",
 
   engineInitializing: "جاري تجهيز المحرك — انتظر دقيقة ثم حدّث الصفحة",
-  engineNotReady: "المحرك غير جاهز — انتظر قليلاً أو حدّث الصفحة",
-  ready: "متصل",
+  engineNotReady: "السيرفر الاحتياطي غير متصل — يوتيوب والمنصات الشائعة تعمل من جهازك مباشرة",
+  staticModeHint: "يعمل من جهازك مباشرة — بدون سيرفر",
+  staticProxyRequired:
+    "تيك توك وإنستغرام تحتاج بروكسي CORS. أضِف NEXT_PUBLIC_CORS_PROXY_URL (Cloudflare Worker مجاني) — يوتيوب يعمل بدونه.",
+  ready: "من جهازك",
   noPreview: "بدون معاينة",
 
   networkError: "خطأ في الشبكة. حاول مرة أخرى.",
   downloadFailed: "فشل التحميل",
+  downloadOpenedExternally:
+    "تم فتح الفيدio — إن لم يبدأ التحميل: اضغط ⋮ في المتصفح ثم «تنزيل» أو «حفظ الفيدio»",
   imageDownloadFailed: "فشل تحميل الصورة. جرّب دقة أخرى.",
   notDirectImage: "هذا ليس رابط صورة مباشرة — اختر فيديو أو صوت.",
   videoDownloadFailed: "فشل التحميل. جرّب جودة أخرى.",
@@ -59,6 +64,8 @@ export const ar = {
   fetchFailed: "تعذّر جلب معلومات الوسائط",
   youtubeEngineMissing:
     "تعذّر تحليل يوتيوب. جرّب رابطاً آخر أو انتظر قليلاً ثم أعد التحليل.",
+  youtubeBrowserBlocked:
+    "تعذّر الاتصال بيوتيوب من المتصفح — جرّب تعطيل مانع الإعلانات أو شبكة أخرى",
   fetchTimeout: "استغرق التحليل وقتاً طويلاً — حاول مجدداً (قد يكون السيرفر بارداً)",
   missingImageUrl: "رابط الصورة مفقود",
   missingMediaUrl: "رابط الوسائط مفقود",

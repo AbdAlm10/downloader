@@ -1,3 +1,4 @@
+import { ar } from "./ar";
 import { sanitizeFilename } from "./validate";
 
 export interface DownloadProgressState {
@@ -24,7 +25,8 @@ export async function downloadWithProgress(
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error((err as { error?: string }).error ?? "Download failed");
+    const msg = (err as { error?: string }).error;
+    throw new Error(msg && msg.length < 200 ? msg : ar.downloadFailed);
   }
 
   const total =

@@ -1,0 +1,27 @@
+{
+  "name": "المنزّل — تحميل فيديو وصوت وصور",
+  "short_name": "المنزّل",
+  "description": "حمّل الفيديو والصوت والصور من يوتيوب وتيك توك وإنستغرام وغيرها",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "dir": "rtl",
+  "lang": "ar",
+  "background_color": "#f5f5f7",
+  "theme_color": "#0071E3",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}
