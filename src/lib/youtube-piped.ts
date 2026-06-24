@@ -1,6 +1,8 @@
 import type { FormatOption } from "./types";
 import { ar } from "./ar";
+import { abortSignalWithTimeout } from "./client-errors";
 import { formatFileSize } from "./utils";
+import { ITAG_HEIGHT } from "./youtube-innertube-shared";
 import type { parseMediaInfo } from "./formats";
 
 type ParsedMediaInfo = ReturnType<typeof parseMediaInfo>;
@@ -10,9 +12,13 @@ interface PipedStream {
   quality?: string;
   codec?: string;
   container?: string;
+  format?: string;
   bitrate?: number;
   videoOnly?: boolean;
   mimeType?: string;
+  itag?: number;
+  height?: number;
+  width?: number;
 }
 
 interface PipedResponse {
@@ -29,36 +35,44 @@ interface PipedResponse {
   audioStreams?: PipedStream[];
 }
 
+/** Known-good Piped APIs (CORS-enabled, work from browser). */
+const PIPED_APIS_HARDCODED = [
+  "https://api.piped.private.coffee",
+  "https://pipedapi.adminforge.de",
+  "https://pipedapi.ducks.party",
+  "https://pipedapi.in.projectsegfau.lt",
+  "https://pipedapi.leptons.xyz",
+  "https://pipedapi.tokhmi.xyz",
+] as const;
+
 let cachedApis: string[] | null = null;
 let cacheExpiry = 0;
 
 async function discoverPipedApis(): Promise<string[]> {
   if (cachedApis && Date.now() < cacheExpiry) return cachedApis;
 
-  const fallback = ["https://api.piped.private.coffee"];
+  const merged: string[] = [...PIPED_APIS_HARDCODED];
 
   try {
     const res = await fetch("https://piped-instances.kavin.rocks/", {
-      signal: AbortSignal.timeout(8_000),
+      signal: abortSignalWithTimeout(6_000),
     });
     if (res.ok) {
       const rows = (await res.json()) as { api_url?: string }[];
-      const urls = rows
-        .map((r) => r.api_url?.replace(/\/$/, ""))
-        .filter((u): u is string => Boolean(u?.startsWith("https://")));
-      if (urls.length > 0) {
-        cachedApis = urls;
-        cacheExpiry = Date.now() + 30 * 60 * 1000;
-        return urls;
+      for (const row of rows) {
+        const u = row.api_url?.replace(/\/$/, "");
+        if (u?.startsWith("https://") && !merged.includes(u)) {
+          merged.push(u);
+        }
       }
     }
   } catch {
-    /* use fallback */
+    /* hardcoded list is enough */
   }
 
-  cachedApis = fallback;
-  cacheExpiry = Date.now() + 10 * 60 * 1000;
-  return fallback;
+  cachedApis = merged;
+  cacheExpiry = Date.now() + 20 * 60 * 1000;
+  return merged;
 }
 
 export function extractYouTubeVideoId(url: string): string | null {
@@ -74,6 +88,10 @@ export function extractYouTubeVideoId(url: string): string | null {
       if (v) return v;
       const shorts = u.pathname.match(/^\/shorts\/([\w-]+)/);
       if (shorts?.[1]) return shorts[1];
+      const embed = u.pathname.match(/^\/embed\/([\w-]+)/);
+      if (embed?.[1]) return embed[1];
+      const live = u.pathname.match(/^\/live\/([\w-]+)/);
+      if (live?.[1]) return live[1];
     }
   } catch {
     return null;
@@ -81,25 +99,36 @@ export function extractYouTubeVideoId(url: string): string | null {
   return null;
 }
 
-function parseHeight(quality?: string): number {
-  const m = quality?.match(/(\d{3,4})p/i);
-  return m ? parseInt(m[1]!, 10) : 0;
+function isUsablePipedStream(s: PipedStream): boolean {
+  if (!s.url?.startsWith("http")) return false;
+  if (s.mimeType?.includes("mpegurl") || s.format === "HLS") return false;
+  if (/^LBRY/i.test(s.quality ?? "")) return false;
+  if (s.url.includes("odycdn.com")) return false;
+  return true;
+}
+
+function parseStreamHeight(s: PipedStream): number {
+  if (s.height && s.height > 0) return s.height;
+  const fromQ = s.quality?.match(/(\d{3,4})p/i);
+  if (fromQ) return parseInt(fromQ[1]!, 10);
+  if (s.itag && s.itag > 0 && ITAG_HEIGHT[s.itag]) return ITAG_HEIGHT[s.itag]!;
+  return 0;
 }
 
 function extFromStream(s: PipedStream, fallback: string): string {
   if (s.container) return s.container.replace(/^\./, "") || fallback;
+  if (s.format === "MPEG_4" || s.mimeType?.includes("mp4")) return "mp4";
   if (s.mimeType?.includes("webm")) return "webm";
-  if (s.mimeType?.includes("mp4")) return "mp4";
   return fallback;
 }
 
 function toPipedMediaInfo(data: PipedResponse, webpageUrl: string, videoId: string): ParsedMediaInfo | null {
-  const videoStreams = (data.videoStreams ?? []).filter((s) => s.url?.startsWith("http"));
+  const videoStreams = (data.videoStreams ?? []).filter(isUsablePipedStream);
   const audioStreams = (data.audioStreams ?? []).filter((s) => s.url?.startsWith("http"));
 
   const videoFormats: FormatOption[] = [];
   for (const s of videoStreams) {
-    const h = parseHeight(s.quality);
+    const h = parseStreamHeight(s);
     if (h <= 0) continue;
     const ext = extFromStream(s, "mp4");
     const muxed = !s.videoOnly;
@@ -153,40 +182,62 @@ function toPipedMediaInfo(data: PipedResponse, webpageUrl: string, videoId: stri
   };
 }
 
-const PIPED_INSTANCE_LIMIT = 6;
-const PIPED_REQUEST_MS = 10_000;
+const PIPED_INSTANCE_LIMIT = 8;
+const PIPED_REQUEST_MS = 14_000;
 
 async function fetchPipedFromApi(
   api: string,
   videoId: string,
-  webpageUrl: string
+  webpageUrl: string,
+  signal?: AbortSignal
 ): Promise<ParsedMediaInfo | null> {
   const res = await fetch(`${api}/streams/${videoId}`, {
     headers: { Accept: "application/json" },
-    signal: AbortSignal.timeout(PIPED_REQUEST_MS),
+    signal: signal ?? abortSignalWithTimeout(PIPED_REQUEST_MS),
   });
   if (!res.ok) return null;
   const data = (await res.json()) as PipedResponse;
-  if ("error" in data && data.error) return null;
+  if (data.error || data.message) return null;
   return toPipedMediaInfo(data, webpageUrl, videoId);
 }
 
-export async function fetchYoutubeViaPiped(url: string): Promise<ParsedMediaInfo | null> {
+function formatScore(info: ParsedMediaInfo | null): number {
+  if (!info) return 0;
+  return info.videoFormats.length * 10 + info.audioFormats.length;
+}
+
+export async function fetchYoutubeViaPiped(
+  url: string,
+  signal?: AbortSignal
+): Promise<ParsedMediaInfo | null> {
   const videoId = extractYouTubeVideoId(url);
   if (!videoId) return null;
 
   const apis = (await discoverPipedApis()).slice(0, PIPED_INSTANCE_LIMIT);
-  const settled = await Promise.allSettled(
-    apis.map((api) => fetchPipedFromApi(api, videoId, url))
+
+  const tasks = apis.map(
+    (api) =>
+      fetchPipedFromApi(api, videoId, url, signal)
+        .then((result) => {
+          if (result) return result;
+          throw new Error("empty");
+        })
+        .catch(() => null)
   );
 
+  const settled = await Promise.all(tasks);
+  let best: ParsedMediaInfo | null = null;
+  let bestScore = 0;
+
   for (const result of settled) {
-    if (result.status === "fulfilled" && result.value) {
-      return result.value;
+    const score = formatScore(result);
+    if (score > bestScore) {
+      best = result;
+      bestScore = score;
     }
   }
 
-  return null;
+  return best;
 }
 
 export function isPipedFormatId(formatId: string): boolean {

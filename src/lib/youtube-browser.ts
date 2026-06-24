@@ -20,6 +20,34 @@ function isYoutubeUrl(url: string): boolean {
   return /youtube\.com|youtu\.be/i.test(url);
 }
 
+function hasFormats(info: { videoFormats: unknown[]; audioFormats: unknown[] } | null): boolean {
+  return Boolean(info && (info.videoFormats.length > 0 || info.audioFormats.length > 0));
+}
+
+function formatCount(info: { videoFormats: unknown[]; audioFormats: unknown[] } | null): number {
+  if (!info) return 0;
+  return info.videoFormats.length + info.audioFormats.length;
+}
+
+function toMediaInfo(mapped: {
+  id: string;
+  title: string;
+  thumbnail?: string;
+  duration?: number;
+  uploader?: string;
+  platform: string;
+  webpageUrl: string;
+  videoFormats: MediaInfo["videoFormats"];
+  audioFormats: MediaInfo["audioFormats"];
+  imageFormats: MediaInfo["imageFormats"];
+}): MediaInfo {
+  return {
+    ...mapped,
+    durationLabel: formatDuration(mapped.duration),
+    analyzedOnDevice: true,
+  };
+}
+
 async function fetchViaYoutubeiLib(
   videoId: string,
   webpageUrl: string
@@ -29,7 +57,7 @@ async function fetchViaYoutubeiLib(
     const tube = await Promise.race([
       Innertube.create(),
       new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("timeout")), 20_000);
+        setTimeout(() => reject(new Error("timeout")), 30_000);
       }),
     ]);
 
@@ -47,12 +75,8 @@ async function fetchViaYoutubeiLib(
           webpageUrl,
           videoId
         );
-        if (mapped && (mapped.videoFormats.length > 0 || mapped.audioFormats.length > 0)) {
-          return {
-            ...mapped,
-            durationLabel: formatDuration(mapped.duration),
-            analyzedOnDevice: true,
-          };
+        if (mapped && hasFormats(mapped)) {
+          return toMediaInfo(mapped);
         }
       } catch {
         continue;
@@ -64,32 +88,26 @@ async function fetchViaYoutubeiLib(
   return null;
 }
 
-/** Analyze YouTube on the user's device (direct InnerTube API → youtubei.js fallback). */
+/** Analyze YouTube on the user's device (Piped → InnerTube → youtubei.js). */
 export async function fetchYoutubeOnDevice(url: string): Promise<MediaInfo> {
   if (!isYoutubeUrl(url)) throw new Error(ar.invalidUrl);
 
   const videoId = extractYouTubeVideoId(url);
   if (!videoId) throw new Error(ar.invalidUrl);
 
-  const direct = await fetchYoutubePlayerDirect(videoId, url);
-  if (direct) {
-    return {
-      ...direct,
-      durationLabel: formatDuration(direct.duration),
-      analyzedOnDevice: true,
-    };
-  }
+  const [piped, direct] = await Promise.all([
+    fetchYoutubeViaPiped(url),
+    fetchYoutubePlayerDirect(videoId, url),
+  ]);
 
-  const piped = await fetchYoutubeViaPiped(url);
-  if (
-    piped &&
-    (piped.videoFormats.length > 0 || piped.audioFormats.length > 0)
-  ) {
-    return {
-      ...piped,
-      durationLabel: formatDuration(piped.duration),
-      analyzedOnDevice: true,
-    };
+  if (hasFormats(direct) && formatCount(direct!) >= formatCount(piped)) {
+    return toMediaInfo(direct!);
+  }
+  if (hasFormats(piped)) {
+    return toMediaInfo(piped!);
+  }
+  if (hasFormats(direct)) {
+    return toMediaInfo(direct!);
   }
 
   const fromLib = await fetchViaYoutubeiLib(videoId, url);

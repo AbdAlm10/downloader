@@ -1,4 +1,5 @@
 import { ar } from "./ar";
+import { abortSignalWithTimeout } from "./client-errors";
 import {
   mapInnertubeStreamingToInfo,
   type InnertubeStreamFormat,
@@ -9,38 +10,37 @@ import {
 const INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const PLAYER_URL = `https://www.youtube.com/youtubei/v1/player?key=${INNERTUBE_KEY}`;
 
-type DirectClient = "ANDROID" | "IOS" | "TV_EMBEDDED" | "WEB";
+type DirectClient = "ANDROID" | "ANDROID_VR" | "IOS";
 
 const CLIENT_BODIES: Record<DirectClient, Record<string, unknown>> = {
   ANDROID: {
     clientName: "ANDROID",
-    clientVersion: "19.45.36",
+    clientVersion: "20.10.38",
     androidSdkVersion: 30,
     hl: "en",
     gl: "US",
   },
+  ANDROID_VR: {
+    clientName: "ANDROID_VR",
+    clientVersion: "1.60.19",
+    deviceMake: "Oculus",
+    deviceModel: "Quest 3",
+    androidSdkVersion: 32,
+    hl: "en",
+    gl: "US",
+    osName: "Android",
+    osVersion: "12L",
+  },
   IOS: {
     clientName: "IOS",
-    clientVersion: "19.45.4",
-    deviceModel: "iPhone14,3",
-    hl: "en",
-    gl: "US",
-  },
-  TV_EMBEDDED: {
-    clientName: "TVHTML5_SIMPLY_EMBEDDED_PLAYER",
-    clientVersion: "2.0",
-    hl: "en",
-    gl: "US",
-  },
-  WEB: {
-    clientName: "WEB",
-    clientVersion: "2.20241126.01.00",
+    clientVersion: "20.10.4",
+    deviceModel: "iPhone16,2",
     hl: "en",
     gl: "US",
   },
 };
 
-const CLIENT_ORDER: DirectClient[] = ["ANDROID", "IOS", "TV_EMBEDDED", "WEB"];
+const CLIENT_ORDER: DirectClient[] = ["ANDROID", "ANDROID_VR", "IOS"];
 
 interface RawPlayerFormat {
   itag?: number;
@@ -124,7 +124,7 @@ async function postPlayer(
 
   const res = await fetch(PLAYER_URL, {
     method: "POST",
-    signal: signal ?? AbortSignal.timeout(18_000),
+    signal: signal ?? abortSignalWithTimeout(18_000),
     credentials: "omit",
     headers,
     body,
