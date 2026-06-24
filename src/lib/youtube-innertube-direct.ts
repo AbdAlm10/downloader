@@ -1,6 +1,11 @@
 import { ar } from "./ar";
 import { abortSignalWithTimeout } from "./client-errors";
 import {
+  YOUTUBE_INNERTUBE_CLIENT_ORDER,
+  YOUTUBE_INNERTUBE_CLIENTS,
+  type YoutubeInnertubeClientName,
+} from "./youtube-clients";
+import {
   mapInnertubeStreamingToInfo,
   type InnertubeStreamFormat,
   type MappedYoutubeInfo,
@@ -10,37 +15,10 @@ import {
 const INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8";
 const PLAYER_URL = `https://www.youtube.com/youtubei/v1/player?key=${INNERTUBE_KEY}`;
 
-type DirectClient = "ANDROID" | "ANDROID_VR" | "IOS";
+type DirectClient = YoutubeInnertubeClientName;
 
-const CLIENT_BODIES: Record<DirectClient, Record<string, unknown>> = {
-  ANDROID: {
-    clientName: "ANDROID",
-    clientVersion: "20.10.38",
-    androidSdkVersion: 30,
-    hl: "en",
-    gl: "US",
-  },
-  ANDROID_VR: {
-    clientName: "ANDROID_VR",
-    clientVersion: "1.60.19",
-    deviceMake: "Oculus",
-    deviceModel: "Quest 3",
-    androidSdkVersion: 32,
-    hl: "en",
-    gl: "US",
-    osName: "Android",
-    osVersion: "12L",
-  },
-  IOS: {
-    clientName: "IOS",
-    clientVersion: "20.10.4",
-    deviceModel: "iPhone16,2",
-    hl: "en",
-    gl: "US",
-  },
-};
-
-const CLIENT_ORDER: DirectClient[] = ["ANDROID", "ANDROID_VR", "IOS"];
+const CLIENT_BODIES = YOUTUBE_INNERTUBE_CLIENTS;
+const CLIENT_ORDER = YOUTUBE_INNERTUBE_CLIENT_ORDER;
 
 interface RawPlayerFormat {
   itag?: number;

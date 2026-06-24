@@ -45,8 +45,8 @@ export const ar = {
   videoDownloadFailed: "فشل التحميل. جرّب جودة أخرى.",
 
   footer: "للاستخدام الشخصي · احترم حقوق النشر",
-  version: "1.0.21",
-  madeWithLove: "صُنع ب ❤️",
+  version: "1.0.22",
+  madeWithLove: "صُنع ب ❤️ بواسطة عبدالرحمن المحمد",
   author: "عبدالرحمن المحمد",
   authorInstagram: "@AbdAlm10 على إنستغرام",
   platformsCount: "1000+ منصة",

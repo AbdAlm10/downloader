@@ -1,9 +1,11 @@
 import type { FormatOption } from "./types";
 import { ar } from "./ar";
 import { abortSignalWithTimeout } from "./client-errors";
-import { formatFileSize } from "./utils";
 import { ITAG_HEIGHT } from "./youtube-innertube-shared";
+import { extractYouTubeVideoId, normalizeYoutubeWatchUrl } from "./youtube-url";
 import type { parseMediaInfo } from "./formats";
+
+export { extractYouTubeVideoId } from "./youtube-url";
 
 type ParsedMediaInfo = ReturnType<typeof parseMediaInfo>;
 
@@ -73,30 +75,6 @@ async function discoverPipedApis(): Promise<string[]> {
   cachedApis = merged;
   cacheExpiry = Date.now() + 20 * 60 * 1000;
   return merged;
-}
-
-export function extractYouTubeVideoId(url: string): string | null {
-  try {
-    const u = new URL(url);
-    const host = u.hostname.replace(/^www\./i, "").toLowerCase();
-    if (host === "youtu.be") {
-      const id = u.pathname.replace(/^\//, "").split("/")[0];
-      return id && /^[\w-]{6,}$/.test(id) ? id : null;
-    }
-    if (host.includes("youtube.com")) {
-      const v = u.searchParams.get("v");
-      if (v) return v;
-      const shorts = u.pathname.match(/^\/shorts\/([\w-]+)/);
-      if (shorts?.[1]) return shorts[1];
-      const embed = u.pathname.match(/^\/embed\/([\w-]+)/);
-      if (embed?.[1]) return embed[1];
-      const live = u.pathname.match(/^\/live\/([\w-]+)/);
-      if (live?.[1]) return live[1];
-    }
-  } catch {
-    return null;
-  }
-  return null;
 }
 
 function isUsablePipedStream(s: PipedStream): boolean {
@@ -213,11 +191,12 @@ export async function fetchYoutubeViaPiped(
   const videoId = extractYouTubeVideoId(url);
   if (!videoId) return null;
 
+  const watchUrl = normalizeYoutubeWatchUrl(url) ?? url;
   const apis = (await discoverPipedApis()).slice(0, PIPED_INSTANCE_LIMIT);
 
   const tasks = apis.map(
     (api) =>
-      fetchPipedFromApi(api, videoId, url, signal)
+      fetchPipedFromApi(api, videoId, watchUrl, signal)
         .then((result) => {
           if (result) return result;
           throw new Error("empty");

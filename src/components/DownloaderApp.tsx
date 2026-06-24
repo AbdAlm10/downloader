@@ -8,6 +8,7 @@ import { abortSignalWithTimeout, resolveUiError } from "@/lib/client-errors";
 import { isYoutubeNavigateError } from "@/lib/youtube-download";
 import { isExternalNavigateError } from "@/lib/client-download";
 import { isStaticOnly } from "@/lib/static-mode";
+import { isYoutubeUrl } from "@/lib/youtube-url";
 import type { MediaInfo, MediaType } from "@/lib/types";
 import { TopBar } from "./TopBar";
 import { HeroSection } from "./HeroSection";
@@ -49,7 +50,7 @@ export function DownloaderApp() {
     setInfo(null);
 
     try {
-      if (/youtube\.com|youtu\.be/i.test(trimmed)) {
+      if (isYoutubeUrl(trimmed)) {
         const { fetchYoutubeOnDevice } = await import("@/lib/youtube-browser");
         const data = await fetchYoutubeOnDevice(trimmed);
         setInfo(data);

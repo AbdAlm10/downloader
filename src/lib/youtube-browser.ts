@@ -3,33 +3,21 @@
 import { ar } from "./ar";
 import type { MediaInfo } from "./types";
 import { formatDuration } from "./utils";
-import { extractYouTubeVideoId } from "./youtube-piped";
+import { extractYouTubeVideoId, isYoutubeUrl, normalizeYoutubeWatchUrl } from "./youtube-url";
 import {
   downloadGoogleVideoStream,
   fetchYoutubePlayerDirect,
   resolveYoutubeStreamUrl,
 } from "./youtube-innertube-direct";
 import { fetchYoutubeViaPiped } from "./youtube-piped";
+import { fetchYoutubeFromWatchPage } from "./youtube-watch-scrape";
 import {
   INNERTUBE_CLIENTS,
   mapInnertubeStreamingToInfo,
   qualityFromInnertubeFormatId,
 } from "./youtube-innertube-shared";
 
-function isYoutubeUrl(url: string): boolean {
-  return /youtube\.com|youtu\.be/i.test(url);
-}
-
-function hasFormats(info: { videoFormats: unknown[]; audioFormats: unknown[] } | null): boolean {
-  return Boolean(info && (info.videoFormats.length > 0 || info.audioFormats.length > 0));
-}
-
-function formatCount(info: { videoFormats: unknown[]; audioFormats: unknown[] } | null): number {
-  if (!info) return 0;
-  return info.videoFormats.length + info.audioFormats.length;
-}
-
-function toMediaInfo(mapped: {
+type YoutubeCandidate = {
   id: string;
   title: string;
   thumbnail?: string;
@@ -40,7 +28,18 @@ function toMediaInfo(mapped: {
   videoFormats: MediaInfo["videoFormats"];
   audioFormats: MediaInfo["audioFormats"];
   imageFormats: MediaInfo["imageFormats"];
-}): MediaInfo {
+};
+
+function hasFormats(info: YoutubeCandidate | null): boolean {
+  return Boolean(info && (info.videoFormats.length > 0 || info.audioFormats.length > 0));
+}
+
+function formatScore(info: YoutubeCandidate | null): number {
+  if (!info) return 0;
+  return info.videoFormats.length * 10 + info.audioFormats.length;
+}
+
+function toMediaInfo(mapped: YoutubeCandidate): MediaInfo {
   return {
     ...mapped,
     durationLabel: formatDuration(mapped.duration),
@@ -48,16 +47,29 @@ function toMediaInfo(mapped: {
   };
 }
 
+function pickBest(...candidates: (YoutubeCandidate | null)[]): YoutubeCandidate | null {
+  let best: YoutubeCandidate | null = null;
+  let bestScore = 0;
+  for (const c of candidates) {
+    const score = formatScore(c);
+    if (score > bestScore) {
+      best = c;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
 async function fetchViaYoutubeiLib(
   videoId: string,
   webpageUrl: string
-): Promise<MediaInfo | null> {
+): Promise<YoutubeCandidate | null> {
   try {
     const { Innertube } = await import("youtubei.js/web");
     const tube = await Promise.race([
       Innertube.create(),
       new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("timeout")), 30_000);
+        setTimeout(() => reject(new Error("timeout")), 35_000);
       }),
     ]);
 
@@ -76,7 +88,7 @@ async function fetchViaYoutubeiLib(
           videoId
         );
         if (mapped && hasFormats(mapped)) {
-          return toMediaInfo(mapped);
+          return mapped;
         }
       } catch {
         continue;
@@ -88,30 +100,24 @@ async function fetchViaYoutubeiLib(
   return null;
 }
 
-/** Analyze YouTube on the user's device (Piped → InnerTube → youtubei.js). */
+/** Analyze YouTube — parallel sources, works for youtu.be / shorts / music links. */
 export async function fetchYoutubeOnDevice(url: string): Promise<MediaInfo> {
   if (!isYoutubeUrl(url)) throw new Error(ar.invalidUrl);
 
   const videoId = extractYouTubeVideoId(url);
   if (!videoId) throw new Error(ar.invalidUrl);
 
-  const [piped, direct] = await Promise.all([
+  const watchUrl = normalizeYoutubeWatchUrl(url)!;
+
+  const [direct, piped, fromLib, fromPage] = await Promise.all([
+    fetchYoutubePlayerDirect(videoId, watchUrl),
     fetchYoutubeViaPiped(url),
-    fetchYoutubePlayerDirect(videoId, url),
+    fetchViaYoutubeiLib(videoId, watchUrl),
+    fetchYoutubeFromWatchPage(videoId, watchUrl),
   ]);
 
-  if (hasFormats(direct) && formatCount(direct!) >= formatCount(piped)) {
-    return toMediaInfo(direct!);
-  }
-  if (hasFormats(piped)) {
-    return toMediaInfo(piped!);
-  }
-  if (hasFormats(direct)) {
-    return toMediaInfo(direct!);
-  }
-
-  const fromLib = await fetchViaYoutubeiLib(videoId, url);
-  if (fromLib) return fromLib;
+  const best = pickBest(direct, fromLib, fromPage, piped);
+  if (best) return toMediaInfo(best);
 
   throw new Error(ar.youtubeEngineMissing);
 }

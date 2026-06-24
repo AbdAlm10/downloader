@@ -11,7 +11,7 @@ import {
   platformLabel,
   type ClientPlatform,
 } from "./client-extractors";
-import { extractYouTubeVideoId } from "./youtube-piped";
+import { extractYouTubeVideoId, isYoutubeUrl } from "./youtube-url";
 
 export function isValidMediaUrl(url: string): boolean {
   try {
@@ -23,7 +23,7 @@ export function isValidMediaUrl(url: string): boolean {
 }
 
 export function canAnalyzeOnDevice(url: string): boolean {
-  if (/youtube\.com|youtu\.be/i.test(url)) return true;
+  if (isYoutubeUrl(url)) return true;
   return isValidMediaUrl(url);
 }
 
